@@ -21,34 +21,34 @@ python -m twidge echo
 ```
 
 ```python
-  from twidge import echoers
+from twidge import echoers
 
-  echoers.echobytes()
+echoers.echobytes()
 ```
 
 #### Text Editor
 
 ```sh
-  python -m twidge edit 'Hello World'
+python -m twidge edit 'Hello World'
 ```
 
 ```python
-  from twidge import editors
+from twidge import editors
 
-  content = editors.editstr('Hello World!')
+content = editors.editstr('Hello World!')
 ```
 
 #### Dictionary Editor
 
 ```sh
-  python -m twidge editdict name,email,username,password
+python -m twidge editdict name,email,username,password
 ```
 
 ```python
-  from twidge import editors
+from twidge import editors
 
-  favorite_colors = {'Alice': 'red', 'Bob': 'blue'}
-  content = editors.editdict(favorite_colors)
+favorite_colors = {'Alice': 'red', 'Bob': 'blue'}
+content = editors.editdict(favorite_colors)
 ```
 
 ## Issues
