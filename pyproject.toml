@@ -1,8 +1,10 @@
 [tool.poetry]
 name = "twidge"
-version = "0.1.0"
+version = "0.1.2"
 description = "Terminal Widgets."
 authors = ["Aidan Courtney <aidanfc97@gmail.com>"]
+repository = 'https://github.com/aidaco/twidge'
+readme = 'README.md'
 license = "MIT"
 
 [tool.poetry.dependencies]

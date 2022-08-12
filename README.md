@@ -8,10 +8,16 @@ This package is mostly intended for my own personal use, but have at it.
 
 ## Quick Start
 
+#### Install
+
+```sh
+python -m pip install twidge
+```
+
 #### Echo Keypresses
 
 ```sh
-  python -m twidge echo
+python -m twidge echo
 ```
 
 ```python
@@ -44,3 +50,7 @@ This package is mostly intended for my own personal use, but have at it.
   favorite_colors = {'Alice': 'red', 'Bob': 'blue'}
   content = editors.editdict(favorite_colors)
 ```
+
+## Issues
+
+Many.
