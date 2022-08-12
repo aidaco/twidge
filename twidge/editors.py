@@ -195,6 +195,6 @@ def editstr(content: str) -> str:
 
 
 def editdict(content: dict[str, str] | list[str], display=lambda x: x) -> dict:
-    e = DictEditor(content)
+    e = DictEditor(content, display=display)
     e.run()
     return e.result()
