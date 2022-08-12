@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "twidge"
+version = "0.1.0"
+description = "Terminal Widgets."
+authors = ["Aidan Courtney <aidanfc97@gmail.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+rich = "^12.5.1"
+typer = "^0.6.1"
+pandas = "^1.4.2"
+xlrd = "^2.0.1"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.1.2"
+black = "^22.6.0"
+mypy = "^0.950"
+isort = "^5.10.1"
+flake8 = "^5.0.4"
+
+[tool.poetry.scripts]
+twidge = 'twidge.cli:cli'
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
