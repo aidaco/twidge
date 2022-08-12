@@ -162,7 +162,8 @@ class Editor:
 
 
 class DictEditor:
-    def __init__(self, content: dict[str, str] | list[str]):
+    def __init__(self, content: dict[str, str] | list[str], display=lambda x: x):
+        self.display = display
         if isinstance(content, list):
             self.editors = {k: Editor(show_cursor=False) for k in content}
         else:
@@ -176,7 +177,7 @@ class DictEditor:
         t.add_column()
         t.add_column()
         for k, e in self.editors.items():
-            t.add_row(f"[bold yellow]{k}[/]", e)
+            t.add_row(f"[bold yellow]{self.display(k)}[/]", e)
         return Panel(t, border_style="magenta")
 
     def run(self):
