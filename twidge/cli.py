@@ -35,7 +35,7 @@ def echo(fmt: str = "str"):
 
 
 @cli.command()
-def edit(content: str = ""):
+def edit(content: str = typer.Argument("")):
     print(editors.editstr(content))
 
 
