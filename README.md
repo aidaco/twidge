@@ -41,6 +41,6 @@ This package is mostly intended for my own personal use, but have at it.
 ```python
   from twidge import editors
 
-  favorite_color = {'Alice': 'red', 'Bob': 'blue'}
-  content = editors.editdict(ages)
+  favorite_colors = {'Alice': 'red', 'Bob': 'blue'}
+  content = editors.editdict(favorite_colors)
 ```
