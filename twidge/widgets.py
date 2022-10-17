@@ -255,8 +255,7 @@ class searchdf(trigger.auto, display):
 class filterlist(trigger.auto, display):
     def __init__(self, options: list[str]):
         self.options = options
-        self.subset = set(options)
-        self.query = ""
+        self.reset()
 
     def filter(self):
         return {e for e in self.subset if re.search(self.query, e, re.IGNORECASE)}
@@ -272,15 +271,15 @@ class filterlist(trigger.auto, display):
         return Panel(content, title=self.query, title_align="left", style="bold cyan")
 
     def refresh(self):
-        if len(self.query) == 0:
-            self.subset = self.options
-        else:
-            self.subset = self.filter()
+        self.subset = self.filter()
+
+    def reset(self):
+        self.query = ""
+        self.subset = set(self.options)
 
     @trigger.on("ctrl+d")
     def clear(self):
-        self.query = ""
-        self.refresh()
+        self.reset()
 
     @trigger.on("backspace")
     def backspace(self):
@@ -292,3 +291,39 @@ class filterlist(trigger.auto, display):
         if len(k := key) == 1:
             self.query += str(k)
             self.refresh()
+
+
+class retrievelist(filterlist):
+    def __rich__(self):
+        table = Table.grid(padding=(0, 1, 0, 0))
+        table.add_column()
+        table.add_column()
+        for i, o in enumerate(self.options):
+            if o in self.subset:
+                table.add_row(f"[cyan]{i+1}[/]", f"[on green]{o}[/]")
+            else:
+                table.add_row(f"[cyan]{i+1}[/]", f"[bold yellow]{o}[/]")
+        return Panel(
+            table,
+            title=f"[bold yellow]{self.query}[/]",
+            title_align="left",
+            border_style="magenta",
+        )
+
+    def reset(self):
+        self.query = ""
+        self.subset = {}
+
+    @trigger.on("space")
+    def space(self):
+        self.update(" ")
+
+    def filter(self):
+        try:
+            indices = (
+                int(m.group(1)) - 1
+                for m in re.compile(r"\W*(\d+)\W*").finditer(self.query)
+            )
+            return {self.options[i] for i in indices}
+        except (ValueError, IndexError):
+            return {}

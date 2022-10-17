@@ -44,5 +44,10 @@ def filterlist(options: str):
     print(widgets.filterlist.run(options.split(",")).result())
 
 
+@cli.command()
+def retrievelist(options: str):
+    print(widgets.retrievelist.run(options.split(",")).result())
+
+
 if __name__ == "__main__":
     cli()
