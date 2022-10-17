@@ -324,6 +324,6 @@ class retrievelist(filterlist):
                 int(m.group(1)) - 1
                 for m in re.compile(r"\W*(\d+)\W*").finditer(self.query)
             )
-            return {self.options[i] for i in indices}
+            return [self.options[i] for i in indices]
         except (ValueError, IndexError):
             return {}
