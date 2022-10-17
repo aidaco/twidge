@@ -21,9 +21,9 @@ python -m twidge echo
 ```
 
 ```python
-from twidge import echoers
+from twidge.widgets import echo
 
-echoers.echobytes()
+echo.run()
 ```
 
 #### Text Editor
@@ -33,9 +33,9 @@ python -m twidge edit 'Hello World'
 ```
 
 ```python
-from twidge import editors
+from twidge.widgets import editstr
 
-content = editors.editstr('Hello World!')
+content = editstr.run('Hello World!')
 ```
 
 #### Dictionary Editor
@@ -45,12 +45,12 @@ python -m twidge editdict name,email,username,password
 ```
 
 ```python
-from twidge import editors
+from twidge.widgets import editdict
 
 favorite_colors = {'Alice': 'red', 'Bob': 'blue'}
-content = editors.editdict(favorite_colors)
+content = editdict.run(favorite_colors)
 ```
 
 ## Issues
 
-Many.
+Many - known and unknown. Issues welcome.
