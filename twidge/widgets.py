@@ -1,4 +1,7 @@
+import re
+
 import pandas as pd
+from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
@@ -223,13 +226,56 @@ class searchdf(trigger.auto, display):
             self.subset.astype(str).apply(lambda r: content.add_row(*r), axis=1)
         return Panel(content, title=self.query, title_align="left", style="bold cyan")
 
+    def search(self) -> pd.DataFrame:
+        return self.subset[self.full_text.str.contains(self.query, case=self.case)]
+
     def refresh(self):
         if len(self.query) == 0:
             self.subset = self.data
         else:
-            self.subset = self.subset[
-                self.full_text.str.contains(self.query, case=self.case)
-            ]
+            self.subset = self.search()
+
+    @trigger.on("ctrl+d")
+    def clear(self):
+        self.query = ""
+        self.refresh()
+
+    @trigger.on("backspace")
+    def backspace(self):
+        self.query = self.query[:-1]
+        self.refresh()
+
+    @trigger.default
+    def update(self, key):
+        if len(k := key) == 1:
+            self.query += str(k)
+            self.refresh()
+
+
+class filterlist(trigger.auto, display):
+    def __init__(self, options: list[str]):
+        self.options = options
+        self.subset = set(options)
+        self.query = ""
+
+    def filter(self):
+        return {e for e in self.subset if re.search(self.query, e, re.IGNORECASE)}
+
+    def result(self):
+        return list(self.subset)
+
+    def __rich__(self):
+        if len(self.subset) == 0:
+            content = "No matches."
+        else:
+            content = Group(*self.subset, fit=True)
+        return Panel(content, title=self.query, title_align="left", style="bold cyan")
+
+    def refresh(self):
+        if len(self.query) == 0:
+            self.subset = self.options
+        else:
+            self.subset = self.filter()
 
     @trigger.on("ctrl+d")
     def clear(self):

@@ -39,5 +39,10 @@ def editdict(labels: str):
     print(widgets.editdict.run(labels.split(",")).result())
 
 
+@cli.command()
+def filterlist(options: str):
+    print(widgets.filterlist.run(options.split(",")).result())
+
+
 if __name__ == "__main__":
     cli()
