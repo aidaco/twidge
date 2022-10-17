@@ -1,7 +1,7 @@
+import functools
 import os
 import sys
 import termios
-import time
 import typing
 
 from rich.console import Console
@@ -10,82 +10,36 @@ from rich.live import Live
 from . import keymap
 
 
-class Reader(typing.Protocol):
-    def __call__(self, io: typing.BinaryIO) -> typing.Any:
-        ...
+class chbreak:
+    """Opens stdin for reading in character break mode. Unix only.
 
+    Returns a reader object with readstr and readbyte methods."""
 
-def bytereader(io: typing.BinaryIO) -> typing.Callable[[], bytes | None]:
-    """Returns byte representation of the keypress or None if not ready."""
-
-    def inner() -> bytes | None:
-        return io.read(6)
-
-    return inner
-
-
-def strreader(io: typing.BinaryIO) -> typing.Callable[[], str | None]:
-    """Returns str representation of the keypress or None if not ready."""
-    read = bytereader(io)
-
-    def inner() -> str | None:
-        ch = read()
-        return ch if ch is None else keymap.to_str(ch)
-
-    return inner
-
-
-def bytegetter(io: typing.BinaryIO) -> typing.Callable[[], bytes]:
-    """Wait for the next keypress."""
-    read = bytereader(io)
-
-    def inner() -> bytes:
-        while not (ch := read()):
-            time.sleep(0.0001)
-        return ch
-
-    return inner
-
-
-def strgetter(io: typing.BinaryIO) -> typing.Callable[[], str]:
-    """Wait for the next keypress, represented as str."""
-    get = bytegetter(io)
-
-    def inner() -> str:
-        return keymap.to_str(get())
-
-    return inner
-
-
-def bytesiter(io: typing.BinaryIO) -> typing.Iterator[bytes | None]:
-    read = bytereader(io)
-    while True:
-        yield read()
-
-
-def striter(io: typing.BinaryIO) -> typing.Iterator[str | None]:
-    read = strreader(io)
-    while True:
-        yield read()
-
-
-class raw:
-    """Context manager for putting the terminal into raw mode.
-
-    On entrance, returns itself."""
-
-    def __init__(self, reader: Reader, stdin: int = sys.stdin.fileno()):
-        self.reader = reader
+    def __init__(
+        self,
+        stdin: int = sys.stdin.fileno(),
+        block: bool = True,
+    ):
         self.stdin = stdin
+        self.block = block
 
-    def begin(self):
-        self.io = open(self.stdin, "rb", closefd=False)
-        self.old = termios.tcgetattr(self.io)
+    class reader:
+        def __init__(self, io: typing.BinaryIO):
+            self.io = io
+
+        def readbyte(self) -> bytes | None:
+            return self.io.read(6)
+
+        def readstr(self) -> typing.Callable[[], str | None]:
+            return ch if (ch := self.readbyte()) is None else keymap.to_str(ch)
+
+    def __enter__(self):
+        self.old = termios.tcgetattr(self.stdin)
+        mode = self.old.copy()
 
         # This section is a modified version of tty.setraw
         # Removing OPOST fixes issues with carriage returns.
         # Needs further investigation.
-        mode = self.old.copy()
         mode[0] &= ~(
             termios.BRKINT
             | termios.ICRNL
@@ -101,24 +55,83 @@ class raw:
         termios.tcsetattr(self.stdin, termios.TCSAFLUSH, mode)
         # End of modified tty.setraw
 
-        os.set_blocking(self.stdin, False)
+        if not self.block:
+            os.set_blocking(self.stdin, False)
 
-    def end(self):
-        os.set_blocking(self.stdin, True)
-        termios.tcsetattr(self.stdin, termios.TCSADRAIN, self.old)
-
-    def __enter__(self):
-        self.begin()
-        return self.reader(self.io)
+        return self.reader(open(self.stdin, "rb", buffering=0, closefd=False))
 
     def __exit__(self, exc_type, exc_value, exc_tb):
-        self.end()
+        if not self.block:
+            os.set_blocking(self.stdin, True)
+        termios.tcsetattr(self.stdin, termios.TCSADRAIN, self.old)
 
 
-def escape_sequence(sequence: list = ["escape", "escape", "escape"]):
+class trigger:
+    @staticmethod
+    def on(*events):
+        def decorate(fn: typing.Callable) -> typing.Callable:
+            fn.__trigger_on__ = getattr(fn, "__trigger_on__", []) + list(events)
+            return fn
+
+        return decorate
+
+    @classmethod
+    def default(cls, fn: typing.Callable):
+        fn.__trigger_on__ = getattr(fn, "__trigger_on__", []) + ["default"]
+        return fn
+
+    class auto:
+        @functools.cached_property
+        def __trigger_table__(self):
+            return {
+                tag: meth
+                for attr in dir(self)
+                if attr != "__trigger_table__"
+                and callable((meth := getattr(self, attr)))
+                and (tags := getattr(meth, "__trigger_on__", None)) is not None
+                for tag in tags
+            }
+
+        def __trigger__(self, event):
+            table = self.__trigger_table__
+
+            def default():
+                table.get("default")(event)
+
+            table.get(event, default)()
+
+
+class focusdispatcher(trigger.auto):
+    """Dispatch events to sequence of widgets by active focus, cycles with 'tab' and 'shift+tab'."""
+
+    def __init__(self, widgets: list | None = None, start: int = 0):
+        self.focus: int = start
+        self.targets = widgets if widgets is not None else []
+        if widgets:
+            self.targets[self.focus].show_cursor = True
+
+    @trigger.on("tab")
+    def forward(self, _=None):
+        self.targets[self.focus].show_cursor = False
+        self.focus = (self.focus + 1) % len(self.targets)
+        self.targets[self.focus].show_cursor = True
+
+    @trigger.on("shift+tab")
+    def back(self, _=None):
+        self.targets[self.focus].show_cursor = False
+        self.focus = (self.focus - 1) % len(self.targets)
+        self.targets[self.focus].show_cursor = True
+
+    @trigger.default
+    def bubble(self, key):
+        if self.targets:
+            self.targets[self.focus].__trigger__(key)
+
+
+def _make_escape(sequence: list[str]) -> typing.Callable[[str], bool]:
     history = []
 
-    def does_escape(value) -> bool:
+    def does_escape(value: str) -> bool:
         nonlocal history
         history.append(value)
         history = history[-len(sequence) :]
@@ -129,59 +142,20 @@ def escape_sequence(sequence: list = ["escape", "escape", "escape"]):
     return does_escape
 
 
-def dict_dispatcher(target) -> typing.Callable[[str], None]:
-    fnmap = target.__dict_dispatch__
+class display:
+    """Terminal widget mix-in with `run` and `show`. Class must be a Rich Renderable and have a __trigger__ method."""
 
-    def inner(key: str) -> None:
-        if (f := fnmap.get(key, None)) is not None:
-            f()
-        else:
-            fnmap["default"](key)
-
-    return inner
-
-
-def focus_dispatcher(targets: list) -> typing.Callable[[str], None]:
-    focus: int = 0
-    dds = [dict_dispatcher(t) for t in targets]
-    targets[focus].show_cursor = True
-
-    def inner(key: str) -> None:
-        nonlocal focus
-        match key:
-            case "tab":
-                targets[focus].show_cursor = False
-                focus = (focus + 1) % len(targets)
-                targets[focus].show_cursor = True
-            case "shift+tab":
-                targets[focus].show_cursor = False
-                focus = (focus - 1) % len(targets)
-                targets[focus].show_cursor = True
-            case _:
-                dds[focus](key)
-
-    return inner
-
-
-def display(
-    content,
-    dispatch: typing.Callable[[str], None],
-    reader: Reader = striter,
-    escape: typing.Callable[[str], bool] = escape_sequence(["ctrl+x"]),
-    console: Console = Console(),
-    stdin: int = sys.stdin.fileno(),
-):
-
-    with Live(content, console=console, transient=True, auto_refresh=False) as live:
-        with raw(reader, stdin=stdin) as keys:
-            for k in keys:
-                if k is not None:
-                    if escape(k):
-                        break
-                    else:
-                        dispatch(k)
-                try:
+    def show(self, escape: list[str] = ["ctrl+x"], console: None | Console = None):
+        escape = _make_escape(escape)
+        console = console or Console()
+        with Live(self, console=console, transient=True, auto_refresh=False) as live:
+            with chbreak() as reader:
+                while not escape((key := reader.readstr())):
+                    self.__trigger__(key)
                     live.refresh()
-                except BlockingIOError:
-                    pass
-                time.sleep(0)
+
+    @classmethod
+    def run(cls, *args, **kwargs):
+        w = cls(*args, **kwargs)
+        w.show()
+        return w

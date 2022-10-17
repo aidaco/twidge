@@ -4,7 +4,7 @@ import numpy
 import pandas
 import typer
 
-from . import echoers, editors, searchers
+from . import widgets
 
 cli = typer.Typer()
 
@@ -21,27 +21,22 @@ def search(file: str):
         case ".xls":
             df = pandas.read_excel(path)
     df = df.replace(numpy.nan, "-").astype(str)
-    searchers.searchdf(df)
+    widgets.searchdf.run(df)
 
 
 @cli.command()
-def echo(fmt: str = "str"):
-    """fmt can be 'str' or 'bytes'."""
-    match fmt:
-        case "bytes":
-            echoers.echobytes()
-        case "str":
-            echoers.echostr()
+def echo():
+    widgets.echo.run()
 
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(editors.editstr(content))
+    print(widgets.editstr.run(content).result())
 
 
 @cli.command()
 def editdict(labels: str):
-    print(editors.editdict(labels.split(",")))
+    print(widgets.editdict.run(labels.split(",")).result())
 
 
 if __name__ == "__main__":
