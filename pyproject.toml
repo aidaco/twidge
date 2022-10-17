@@ -22,7 +22,7 @@ isort = "^5.10.1"
 flake8 = "^5.0.4"
 
 [tool.poetry.scripts]
-twidge = 'twidge.cli:cli'
+twidge = 'twidge.__main__:cli'
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
