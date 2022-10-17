@@ -3,7 +3,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from .terminal import display, focusdispatcher, trigger
+from .core import display, focusdispatcher, trigger
 
 
 class echo(display):
