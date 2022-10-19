@@ -86,8 +86,8 @@ class trigger:
             return {
                 tag: meth
                 for attr in dir(self)
-                if attr != "__trigger_table__"
-                and callable((meth := getattr(self, attr)))
+                if attr not in {"__trigger_table__", "__weakref__"}
+                and callable((meth := getattr(self, attr, None)))
                 and (tags := getattr(meth, "__trigger_on__", None)) is not None
                 for tag in tags
             }
@@ -99,33 +99,6 @@ class trigger:
                 table.get("default")(event)
 
             table.get(event, default)()
-
-
-class focusdispatcher(trigger.auto):
-    """Dispatch events to sequence of widgets by active focus, cycles with 'tab' and 'shift+tab'."""
-
-    def __init__(self, widgets: list | None = None, start: int = 0):
-        self.focus: int = start
-        self.targets = widgets if widgets is not None else []
-        if widgets:
-            self.targets[self.focus].show_cursor = True
-
-    @trigger.on("tab")
-    def forward(self, _=None):
-        self.targets[self.focus].show_cursor = False
-        self.focus = (self.focus + 1) % len(self.targets)
-        self.targets[self.focus].show_cursor = True
-
-    @trigger.on("shift+tab")
-    def back(self, _=None):
-        self.targets[self.focus].show_cursor = False
-        self.focus = (self.focus - 1) % len(self.targets)
-        self.targets[self.focus].show_cursor = True
-
-    @trigger.default
-    def bubble(self, key):
-        if self.targets:
-            self.targets[self.focus].__trigger__(key)
 
 
 def _make_escape(sequence: list[str]) -> typing.Callable[[str], bool]:
@@ -145,17 +118,25 @@ def _make_escape(sequence: list[str]) -> typing.Callable[[str], bool]:
 class display:
     """Terminal widget mix-in with `run` and `show`. Class must be a Rich Renderable and have a __trigger__ method."""
 
+    class ExitTUI(Exception):
+        ...
+
     def show(self, escape: list[str] = ["ctrl+x"], console: None | Console = None):
         escape = _make_escape(escape)
         console = console or Console()
-        with Live(self, console=console, transient=True, auto_refresh=False) as live:
-            with chbreak() as reader:
-                while not escape((key := reader.readstr())):
-                    self.__trigger__(key)
-                    live.refresh()
+        try:
+            with Live(
+                self, console=console, transient=True, auto_refresh=False
+            ) as live:
+                with chbreak() as reader:
+                    while not escape((key := reader.readstr())):
+                        self.__trigger__(key)
+                        live.refresh()
+        except self.ExitTUI:
+            ...
 
     @classmethod
     def run(cls, *args, **kwargs):
         w = cls(*args, **kwargs)
         w.show()
-        return w
+        return getattr(w, "result", lambda: None)()
