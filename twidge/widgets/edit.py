@@ -1,5 +1,7 @@
 from rich.markup import escape
 from rich.table import Table
+from rich.console import Group
+from rich.panel import Panel
 
 from twidge.core import display, trigger
 
@@ -97,10 +99,10 @@ class editstr(trigger.auto, display):
 
     @trigger.on("right")
     def cursor_right(self):
-        if self.cursor[1] < len(self.lines[self.cursor[0]]) - 1:
+        if self.cursor[1] < len(self.lines[self.cursor[0]]):
             self.cursor[1] += 1
         else:
-            if self.cursor[0] < len(self.lines) - 1:
+            if self.cursor[0] < len(self.lines)-1:
                 self.cursor[0] += 1
                 self.cursor[1] = 0
 
@@ -133,6 +135,15 @@ class editstr(trigger.auto, display):
             self.cursor[1] = 0
         else:
             self.cursor[1] = self.cursor[1] - prev_space - 1
+
+    @trigger.on('home')
+    def cursor_home(self):
+        self.cursor[1] = 0
+
+    @trigger.on('end')
+    def cursor_end(self):
+        self.cursor[1] = len(self.lines[self.cursor[0]])
+
 
     @trigger.on("ctrl+h")
     def delete_word(self):
@@ -195,6 +206,15 @@ class editstr(trigger.auto, display):
     @trigger.on("tab")
     def tab(self):
         self.insert("\t")
+
+class watchcursor(display):
+    """Display cursor position with an editor."""
+    def __init__(self, editor):
+        self.editor = editor
+    def __rich__(self):
+        return Group(Panel.fit(f'Cursor: {self.editor.cursor}'), self.editor)
+    def __trigger__(self, key):
+        self.editor.__trigger__(key)
 
 
 class editdict(display):

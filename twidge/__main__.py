@@ -31,22 +31,22 @@ def echo():
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(widgets.editstr.run(content).result())
+    print(widgets.editstr.run(content))
 
 
 @cli.command()
 def editdict(labels: str):
-    print(widgets.editdict.run(labels.split(",")).result())
+    print(widgets.editdict.run(labels.split(",")))
 
 
 @cli.command()
 def filterlist(options: str):
-    print(widgets.filterlist.run(options.split(",")).result())
+    print(widgets.filterlist.run(options.split(",")))
 
 
 @cli.command()
 def retrievelist(options: str):
-    print(widgets.retrievelist.run(options.split(",")).result())
+    print(widgets.retrievelist.run(options.split(",")))
 
 
 if __name__ == "__main__":
