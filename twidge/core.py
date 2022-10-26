@@ -205,9 +205,9 @@ class TUI:
         reader: typing.Callable[[int], typing.Callable[[], bytes | None]] = chreader,
         console: None | Console = None,
     ):
-        console = console or Console()
+        self.console = console or Console()
         try:
-            with Live(self, console=console, transient=True, auto_refresh=False) as live:
+            with Live(self, console=self.console, transient=True, auto_refresh=False) as live:
                 with chbreak(stdin=stdin, reader=reader) as readch:
                     while ch := readch():
                         self.dispatch(keystr(ch))

@@ -21,17 +21,17 @@ def search(file: str):
         case ".xls":
             df = pandas.read_excel(path)
     df = df.replace(numpy.nan, "-").astype(str)
-    widgets.searchdf.run(df)
+    widgets.SearchDataFrame(df).run()
 
 
 @cli.command()
 def echo():
-    widgets.echo.run()
+    widgets.Echo().run()
 
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(widgets.editstr.run(content))
+    print(widgets.EditStr(content).run())
 
 
 @cli.command()
@@ -41,12 +41,12 @@ def editdict(labels: str):
 
 @cli.command()
 def filterlist(options: str):
-    print(widgets.filterlist.run(options.split(",")))
+    print(widgets.SearchList(options.split(","))))
 
 
 @cli.command()
 def retrievelist(options: str):
-    print(widgets.retrievelist.run(options.split(",")))
+    print(widgets.SelectList(options.split(",")).run())
 
 
 if __name__ == "__main__":
