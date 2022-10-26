@@ -3,23 +3,16 @@ from rich.table import Table
 from rich.console import Group
 from rich.panel import Panel
 
-from twidge.core import display, trigger
+from twidge.core import TUI, on, default, autodispatch
 
+from .mixins import AutoFocus
 from .utility import focusgroup
 
 
-class editbool(trigger.auto, display):
+class editbool(AutoFocus, AutoDispatch, TUI):
     def __init__(self, value: bool):
         self.value = value
         self.focus = True
-
-    @trigger.on("focus")
-    def onfocus(self):
-        self.focus = True
-
-    @trigger.on("blur")
-    def onblur(self):
-        self.focus = False
 
     def __rich__(self):
         if self.focus:
@@ -27,7 +20,7 @@ class editbool(trigger.auto, display):
         else:
             return "True" if self.value else "False"
 
-    @trigger.default
+    @default
     def switch(self, key):
         self.value = not self.value
 
@@ -35,7 +28,7 @@ class editbool(trigger.auto, display):
         return self.value
 
 
-class editstr(trigger.auto, display):
+class editstr(AutoDispatch, AutoFocus, TUI):
     def __init__(self, text="", show_cursor=True):
         self.lines = list(text.split("\n"))
         self.cursor = [0, 0]
@@ -48,11 +41,7 @@ class editstr(trigger.auto, display):
     def __rich__(self):
         if not self.focus and not self.show_cursor:
             nl = "\n"
-            return (
-                f"[bold cyan]{nl.join(self.lines)}[/]"
-                if self.focus
-                else nl.join(self.lines)
-            )
+            return f"[bold cyan]{nl.join(self.lines)}[/]" if self.focus else nl.join(self.lines)
         text = "[bold cyan]" if self.focus else ""
 
         # Render lines before cursor, if any
@@ -78,15 +67,8 @@ class editstr(trigger.auto, display):
 
         return text + ("[/]" if self.focus else "")
 
-    @trigger.on("focus")
-    def onfocus(self):
-        self.focus = True
 
-    @trigger.on("blur")
-    def onblur(self):
-        self.focus = False
-
-    @trigger.on("left")
+    @on("left")
     def cursor_left(self):
         if self.cursor[1] != 0:
             self.cursor[1] -= 1
@@ -97,28 +79,28 @@ class editstr(trigger.auto, display):
                 self.cursor[0] = self.cursor[0] - 1
                 self.cursor[1] = len(self.lines[self.cursor[0]]) - 1
 
-    @trigger.on("right")
+    @on("right")
     def cursor_right(self):
         if self.cursor[1] < len(self.lines[self.cursor[0]]):
             self.cursor[1] += 1
         else:
-            if self.cursor[0] < len(self.lines)-1:
+            if self.cursor[0] < len(self.lines) - 1:
                 self.cursor[0] += 1
                 self.cursor[1] = 0
 
-    @trigger.on("up")
+    @on("up")
     def cursor_up(self):
         if self.cursor[0] > 0:
             self.cursor[0] -= 1
             self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
 
-    @trigger.on("down")
+    @on("down")
     def cursor_down(self):
         if self.cursor[0] < len(self.lines) - 1:
             self.cursor[0] += 1
             self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
 
-    @trigger.on("ctrl+right")
+    @on("ctrl+right")
     def next_word(self):
         line = self.lines[self.cursor[0]]
         next_space = line[self.cursor[1] :].find(" ")
@@ -127,7 +109,7 @@ class editstr(trigger.auto, display):
         else:
             self.cursor[1] = self.cursor[1] + next_space + 1
 
-    @trigger.on("ctrl+left")
+    @on("ctrl+left")
     def prev_word(self):
         line = self.lines[self.cursor[0]]
         prev_space = line[: self.cursor[1] - 1][::-1].find(" ")
@@ -136,16 +118,15 @@ class editstr(trigger.auto, display):
         else:
             self.cursor[1] = self.cursor[1] - prev_space - 1
 
-    @trigger.on('home')
+    @on("home")
     def cursor_home(self):
         self.cursor[1] = 0
 
-    @trigger.on('end')
+    @on("end")
     def cursor_end(self):
         self.cursor[1] = len(self.lines[self.cursor[0]])
 
-
-    @trigger.on("ctrl+h")
+    @on("ctrl+h")
     def delete_word(self):
         prev_space = self.lines[self.cursor[0]][: self.cursor[1] - 1][::-1].find(" ")
         if prev_space == -1:
@@ -153,8 +134,7 @@ class editstr(trigger.auto, display):
         else:
             n = self.cursor[1] - prev_space - 2
         self.lines[self.cursor[0]] = (
-            self.lines[self.cursor[0]][:n]
-            + self.lines[self.cursor[0]][self.cursor[1] :]
+            self.lines[self.cursor[0]][:n] + self.lines[self.cursor[0]][self.cursor[1] :]
         )
         self.cursor[1] = n
 
@@ -177,7 +157,7 @@ class editstr(trigger.auto, display):
         self.cursor[1] += len(char)
         self.lines[self.cursor[0]] = line
 
-    @trigger.on("backspace")
+    @on("backspace")
     def backspace(self):
         if self.cursor[1] != 0:
             self.lines[self.cursor[0]] = (
@@ -195,41 +175,43 @@ class editstr(trigger.auto, display):
                 del self.lines[self.cursor[0]]
                 self.cursor[0] -= 1
 
-    @trigger.on("space")
+    @on("space")
     def space(self):
         self.insert(" ")
 
-    @trigger.on("enter")
+    @on("enter")
     def enter(self):
         self.insert("\n")
 
-    @trigger.on("tab")
+    @on("tab")
     def tab(self):
         self.insert("\t")
 
-class watchcursor(display):
+
+class watchcursor(TUI):
     """Display cursor position with an editor."""
+
     def __init__(self, editor):
         self.editor = editor
+
     def __rich__(self):
-        return Group(Panel.fit(f'Cursor: {self.editor.cursor}'), self.editor)
-    def __trigger__(self, key):
-        self.editor.__trigger__(key)
+        return Group(Panel.fit(f"Cursor: {self.editor.cursor}"), self.editor)
+
+    def dispatch(self, key):
+        self.editor.dispatch(key)
 
 
-class editdict(display):
+class editdict(TUI):
     def __init__(self, content: dict[str, str] | list[str], display=lambda x: x):
         self.display = display
         if isinstance(content, list):
             self.editors = {k: editstr(show_cursor=False) for k in content}
         else:
-            self.editors = {
-                k: editstr(v, show_cursor=False) for k, v in content.items()
-            }
+            self.editors = {k: editstr(v, show_cursor=False) for k, v in content.items()}
         self.fg = focusgroup(*list(self.editors.values()))
 
-    def __trigger__(self, key):
-        self.fg.__trigger__(key)
+    def dispatch(self, key):
+        self.fg.dispatch(key)
 
     def result(self):
         return {key: editor.result() for key, editor in self.editors.items()}

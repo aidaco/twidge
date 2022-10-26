@@ -5,10 +5,10 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 
-from twidge.core import display, trigger
+from twidge.core import TUI, on, default, AutoDispatch
 
 
-class searchdf(trigger.auto, display):
+class searchdf(AutoDispatch, TUI):
     def __init__(self, df: pd.DataFrame, sep="\t", case=False):
         self.data = df
         self.subset = df
@@ -39,24 +39,24 @@ class searchdf(trigger.auto, display):
         else:
             self.subset = self.search()
 
-    @trigger.on("ctrl+d")
+    @on("ctrl+d")
     def clear(self):
         self.query = ""
         self.refresh()
 
-    @trigger.on("backspace")
+    @on("backspace")
     def backspace(self):
         self.query = self.query[:-1]
         self.refresh()
 
-    @trigger.default
+    @default
     def update(self, key):
         if len(k := key) == 1:
             self.query += str(k)
             self.refresh()
 
 
-class filterlist(trigger.auto, display):
+class filterlist(AutoDispatch, TUI):
     def __init__(self, options: list[str]):
         self.options = options
         self.reset()
@@ -81,16 +81,16 @@ class filterlist(trigger.auto, display):
         self.query = ""
         self.subset = set(self.options)
 
-    @trigger.on("ctrl+d")
+    @on("ctrl+d")
     def clear(self):
         self.reset()
 
-    @trigger.on("backspace")
+    @on("backspace")
     def backspace(self):
         self.query = self.query[:-1]
         self.refresh()
 
-    @trigger.default
+    @default
     def update(self, key):
         if len(k := key) == 1:
             self.query += str(k)
@@ -118,7 +118,7 @@ class retrievelist(filterlist):
         self.query = ""
         self.subset = {}
 
-    @trigger.on("space")
+    @on("space")
     def space(self):
         self.update(" ")
 
