@@ -4,7 +4,16 @@ import numpy
 import pandas
 import typer
 
-from . import widgets
+from .widgets import (
+    Echo,
+    EditStr,
+    Escape,
+    Form,
+    Framed,
+    SearchDataFrame,
+    SearchList,
+    SelectList,
+)
 
 cli = typer.Typer()
 
@@ -21,32 +30,32 @@ def search(file: str):
         case ".xls":
             df = pandas.read_excel(path)
     df = df.replace(numpy.nan, "-").astype(str)
-    widgets.SearchDataFrame(df).run()
+    Escape(SearchDataFrame(df)).run()
 
 
 @cli.command()
 def echo():
-    widgets.Echo().run()
+    Escape(Framed(Echo())).run()
 
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(widgets.EditStr(content).run())
+    print(Escape(Framed(EditStr(content))).run())
 
 
 @cli.command()
-def editdict(labels: str):
-    print(widgets.editdict.run(labels.split(",")))
+def form(labels: str):
+    print(Escape(Framed(Form(labels.split(",")))).run())
 
 
 @cli.command()
-def filterlist(options: str):
-    print(widgets.SearchList(options.split(","))))
+def filter(options: str):
+    print(Escape(Framed(SearchList(options.split(",")))).run())
 
 
 @cli.command()
-def retrievelist(options: str):
-    print(widgets.SelectList(options.split(",")).run())
+def select(options: str):
+    print(Escape(Framed(SelectList(options.split(",")))).run())
 
 
 if __name__ == "__main__":

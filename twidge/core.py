@@ -1,5 +1,5 @@
-import functools
 import contextlib
+import functools
 import os
 import sys
 import termios
@@ -139,7 +139,11 @@ def chbreak(
         # Removing OPOST fixes issues with carriage returns.
         # Needs further investigation.
         mode[0] &= ~(
-            termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON
+            termios.BRKINT
+            | termios.ICRNL
+            | termios.INPCK
+            | termios.ISTRIP
+            | termios.IXON
         )
         mode[2] &= ~(termios.CSIZE | termios.PARENB)
         mode[2] |= termios.CS8
@@ -159,14 +163,14 @@ def chbreak(
 
 def on(*events):
     def decorate(fn: typing.Callable) -> typing.Callable:
-        fn.__dispatch_on__ = getattr(fn, "__dispatch_on__", []) + list(events)
+        setattr(fn, '__dispatch_on__', getattr(fn, "__dispatch_on__", []) + list(events))
         return fn
 
     return decorate
 
 
 def default(fn: typing.Callable):
-    fn.__dispatch_on__ = getattr(fn, "__dispatch_on__", []) + ["default"]
+    setattr(fn, '__dispatch_on__', getattr(fn, "__dispatch_on__", []) + ["default"])
     return fn
 
 
@@ -195,7 +199,7 @@ class Exit(Exception):
     ...
 
 
-class TUI:
+class TUI(AutoDispatch):
     def __rich__(self):
         return ""
 
@@ -207,16 +211,14 @@ class TUI:
     ):
         self.console = console or Console()
         try:
-            with Live(self, console=self.console, transient=True, auto_refresh=False) as live:
+            with Live(
+                self, console=self.console, transient=True, auto_refresh=False
+            ) as live:
                 with chbreak(stdin=stdin, reader=reader) as readch:
                     while ch := readch():
                         self.dispatch(keystr(ch))
                         live.refresh()
-        except Exit as e:
+        except Exit:
             ...
 
         return getattr(self, "result", lambda: None)()
-
-    @on("ctrl+c")
-    def escape(self):
-        raise Exit()

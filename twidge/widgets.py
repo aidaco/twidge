@@ -1,24 +1,28 @@
-import typing
 import re
+import typing
 
 import pandas as pd
-
-from rich.markup import escape
 from rich.console import Group
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
+from rich.segment import Segments
+from rich.style import Style
 
-from twidge.core import TUI, on, default, AutoDispatch, Exit
+from twidge.core import TUI, AutoDispatch, Exit, default, on
 
-class AutoFocus(trigger.auto):
+
+class AutoFocus(AutoDispatch):
     """Subclasses are a assigned a managed self.focus: bool attribute."""
-    @trigger.on("focus")
+
+    @on("focus")
     def onfocus(self):
         self.focus = True
 
-    @trigger.on("blur")
+    @on("blur")
     def onblur(self):
         self.focus = False
+
 
 class Echo(TUI):
     def __init__(self):
@@ -28,17 +32,8 @@ class Echo(TUI):
         self.keys.append(key)
 
     def __rich__(self):
-        return Panel(
-            "[cyan]"
-            + " ".join(
-                f"'{ch}'"
-                for ch in map(
-                    lambda s: s.encode("unicode_escape").decode(),
-                    self.keys,
-                )
-            )
-            + "[/]"
-        )
+        chars = (f"'{ch}'" for ch in self.keys)
+        return "[cyan]" + " ".join(chars) + "[/]"
 
 
 class Escape(TUI):
@@ -49,14 +44,35 @@ class Escape(TUI):
     def __rich__(self):
         return self.widget
 
+    def result(self):
+        return self.widget.result()
+
     def dispatch(self, key):
         if key == self.key:
-            raise Exit("Shit")
+            raise Exit("Bye")
         else:
             self.widget.dispatch(key)
 
+class Abort(TUI):
+    def __init__(self, widget, seq: list[str] = ["escape", "escape", "escape"]):
+        self.seq = seq
+        self.keys = ['']*len(seq)
+        self.widget = widget
 
-class Frame(TUI):
+    def __rich__(self):
+        return self.widget
+
+    def result(self):
+        return self.widget.result()
+
+    def dispatch(self, key):
+        self.keys = self.keys[1:] + [key]
+        if self.keys == self.seq:
+            raise SystemExit()
+        else:
+            self.widget.dispatch(key)
+
+class Framed(TUI):
     def __init__(self, content):
         self.content = content
 
@@ -88,7 +104,8 @@ class Labelled(TUI):
     def result(self):
         return self.widget.result()
 
-class Toggle(AutoFocus, AutoDispatch, TUI):
+
+class Toggle(TUI, AutoFocus):
     def __init__(self, value: bool, on_true, on_false):
         self.value = value
         self.on_true = on_true
@@ -108,7 +125,8 @@ class Toggle(AutoFocus, AutoDispatch, TUI):
     def result(self):
         return self.value
 
-class Button(AutoDispatch, TUI):
+
+class Button(TUI, AutoDispatch):
     def __init__(self, content, target: typing.Callable):
         self.content = content
         self.target = target
@@ -129,15 +147,17 @@ class Button(AutoDispatch, TUI):
     def click(self):
         self.target()
 
-    @trigger.default
+    @default
     def drop(self, key):
         ...
 
-class FocusFrame(Frame, AutoFocus):
-    def __rich__(self):
-        return Panel.fit(self.content, border_style='green' if self.focus else 'gray')
 
-class FocusGroup(AutoDispatch, TUI):
+class FocusFramed(Framed, AutoFocus):
+    def __rich__(self):
+        return Panel.fit(self.content, border_style="green" if self.focus else "gray")
+
+
+class FocusGroup(TUI, AutoDispatch):
     def __init__(self, *widgets):
         self.widgets = list(widgets)
         self.focus = 0
@@ -166,15 +186,15 @@ class FocusGroup(AutoDispatch, TUI):
             self.focus -= 1
         getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
 
-    @trigger.default
-    def dispatch(self, key):
+    @default
+    def dispatch_to_focus(self, key):
         self.widgets[self.focus].dispatch(key)
 
     def result(self):
         return [w.result() for w in self.widgets]
 
 
-class SearchList(AutoDispatch, TUI):
+class SearchList(TUI, AutoDispatch):
     def __init__(self, options: list[str]):
         self.options = options
         self.reset()
@@ -190,14 +210,21 @@ class SearchList(AutoDispatch, TUI):
             content = "No matches."
         else:
             content = Group(*self.subset, fit=True)
-        return Panel(content, title=self.query, title_align="left", style="bold cyan")
+        return Group(f"[bold cyan]{self.query}[/]", content)
 
     def refresh(self):
         self.subset = self.filter()
 
     def reset(self):
+        """Resets to like-new."""
         self.query = ""
         self.subset = self.options
+        self.refresh()
+
+    def recalculate(self):
+        """Keep query, reset options and rerun search."""
+        self.subset = self.options
+        self.refresh()
 
     @on("ctrl+d")
     def clear(self):
@@ -206,7 +233,7 @@ class SearchList(AutoDispatch, TUI):
     @on("backspace")
     def backspace(self):
         self.query = self.query[:-1]
-        self.refresh()
+        self.recalculate()
 
     @default
     def update(self, key):
@@ -214,7 +241,8 @@ class SearchList(AutoDispatch, TUI):
             self.query += str(k)
             self.refresh()
 
-class SearchDataframe(SearchList):
+
+class SearchDataFrame(SearchList):
     def __init__(self, df: pd.DataFrame, sep="\t", case=False):
         self.data = df
         self.subset = df
@@ -234,7 +262,7 @@ class SearchDataframe(SearchList):
                 padding=0,
             )
             self.subset.astype(str).apply(lambda r: content.add_row(*r), axis=1)
-        return Panel(content, title=self.query, title_align="left", style="bold cyan")
+        return Group(f"[bold cyan]{self.query}[/]", content)
 
     def search(self) -> pd.DataFrame:
         return self.subset[self.full_text.str.contains(self.query, case=self.case)]
@@ -251,6 +279,7 @@ class SearchDataframe(SearchList):
 
 class SelectList(SearchList):
     RE_NUMSEQ = re.compile(r"\W*(\d+)\W*")
+
     def __rich__(self):
         table = Table.grid(padding=(0, 1, 0, 0))
         table.add_column()
@@ -259,13 +288,8 @@ class SelectList(SearchList):
             if o in self.subset:
                 table.add_row(f"[cyan]{i+1}[/]", f"[on green]{o}[/]")
             else:
-                table.add_row(f"[cyan]{i+1}[/]", f"[bold yellow]{o}[/]")
-        return Panel(
-            table,
-            title=f"[bold yellow]{self.query}[/]",
-            title_align="left",
-            border_style="magenta",
-        )
+                table.add_row(f"[cyan]{i+1}[/]", f"{o}")
+        return Group(f"[bold yellow]{self.query}[/]", table)
 
     def reset(self):
         self.query = ""
@@ -277,11 +301,15 @@ class SelectList(SearchList):
 
     def filter(self):
         try:
-            return [self.options[int(m.group(1)) - 1] for m in self.RE_NUMSEQ.finditer(self.query)]
+            return [
+                self.options[int(m.group(1)) - 1]
+                for m in self.RE_NUMSEQ.finditer(self.query)
+            ]
         except (ValueError, IndexError):
             return []
 
-class EditStr(AutoDispatch, AutoFocus, TUI):
+
+class EditStr(TUI, AutoFocus):
     def __init__(self, text="", show_cursor=True):
         self.lines = list(text.split("\n"))
         self.cursor = [0, 0]
@@ -294,7 +322,11 @@ class EditStr(AutoDispatch, AutoFocus, TUI):
     def __rich__(self):
         if not self.focus and not self.show_cursor:
             nl = "\n"
-            return f"[bold cyan]{nl.join(self.lines)}[/]" if self.focus else nl.join(self.lines)
+            return (
+                f"[bold cyan]{nl.join(self.lines)}[/]"
+                if self.focus
+                else nl.join(self.lines)
+            )
         text = "[bold cyan]" if self.focus else ""
 
         # Render lines before cursor, if any
@@ -319,7 +351,6 @@ class EditStr(AutoDispatch, AutoFocus, TUI):
             text += escape("\n" + "\n".join(self.lines[self.cursor[0] + 1 :]))
 
         return text + ("[/]" if self.focus else "")
-
 
     @on("left")
     def cursor_left(self):
@@ -387,11 +418,12 @@ class EditStr(AutoDispatch, AutoFocus, TUI):
         else:
             n = self.cursor[1] - prev_space - 2
         self.lines[self.cursor[0]] = (
-            self.lines[self.cursor[0]][:n] + self.lines[self.cursor[0]][self.cursor[1] :]
+            self.lines[self.cursor[0]][:n]
+            + self.lines[self.cursor[0]][self.cursor[1] :]
         )
         self.cursor[1] = n
 
-    @trigger.default
+    @default
     def insert(self, char: str):
         if len(char) > 1:
             return
@@ -440,6 +472,7 @@ class EditStr(AutoDispatch, AutoFocus, TUI):
     def tab(self):
         self.insert("\t")
 
+
 class WatchCursor(TUI):
     """Display cursor position with an editor."""
 
@@ -452,21 +485,19 @@ class WatchCursor(TUI):
     def dispatch(self, key):
         self.editor.dispatch(key)
 
-class Form(TUI):
-    def __init__(self, content: list[str]):
-        self.editors = {k: EditStr(show_cursor=False) for k in content}
-        self.fg = FocusGroup(*list(self.editors.values()))
 
-    def dispatch(self, key):
-        self.fg.dispatch(key)
+class Form(FocusGroup):
+    def __init__(self, content: list[str]):
+        self.labels = content
+        super().__init__(*(EditStr(show_cursor=False) for k in content))
 
     def result(self):
-        return [e.result() for _, e in self.editors.items()]
+        return {l: w.result() for l, w in zip(self.labels, self.widgets)}
 
     def __rich__(self):
         t = Table.grid(padding=(0, 1, 0, 0))
         t.add_column()
         t.add_column()
-        for k, e in self.editors.items():
-            t.add_row(f"[bold yellow]{k}[/]", e)
+        for l, w in zip(self.labels, self.widgets):
+            t.add_row(f"[bold yellow]{l}[/]", w)
         return t
