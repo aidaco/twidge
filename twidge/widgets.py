@@ -1,10 +1,10 @@
+import functools
 import re
 import sys
-import functools
 import typing
 
 import pandas as pd
-from rich.console import Group, Console
+from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.segment import Segments

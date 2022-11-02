@@ -1,12 +1,8 @@
 import contextlib
-import functools
 import os
 import sys
 import termios
 import typing
-
-from rich.console import Console
-from rich.live import Live
 
 SPECIALMAP = {
     b" ": "space",

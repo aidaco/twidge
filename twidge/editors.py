@@ -1,10 +1,10 @@
 from math import ceil, floor
 
+from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
-from rich.console import Group
-from twidge.widgets import TUI, on, default
-from twidge.widgets import AutoFocus
+
+from twidge.widgets import TUI, AutoFocus, default, on
 
 
 class EditLine(TUI, AutoFocus):
