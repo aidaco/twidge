@@ -1,7 +1,7 @@
 from rich.table import Table
 
-from twidge.editors import EditLine, EditMultiline
-from twidge.widgets import FocusGroup
+from twidge.widgets.base import FocusGroup
+from twidge.widgets.editors import EditLine, EditMultiline
 
 
 class Form(FocusGroup):

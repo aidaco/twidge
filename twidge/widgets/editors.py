@@ -4,7 +4,7 @@ from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
 
-from twidge.widgets import TUI, AutoFocus, default, on
+from twidge.widgets.base import TUI, AutoFocus, default, on
 
 
 class EditLine(TUI, AutoFocus):
