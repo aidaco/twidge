@@ -1,16 +1,82 @@
 import re
+import sys
+import functools
 import typing
-from math import ceil, floor
 
 import pandas as pd
-from rich.console import Group
-from rich.markup import escape
+from rich.console import Group, Console
+from rich.live import Live
 from rich.panel import Panel
 from rich.segment import Segments
 from rich.style import Style
 from rich.table import Table
 
-from twidge.core import TUI, AutoDispatch, Exit, default, on
+from twidge.core import chbreak, chreader, keystr
+
+
+def on(*events):
+    def decorate(fn: typing.Callable) -> typing.Callable:
+        setattr(
+            fn, "__dispatch_on__", getattr(fn, "__dispatch_on__", []) + list(events)
+        )
+        return fn
+
+    return decorate
+
+
+def default(fn: typing.Callable):
+    setattr(fn, "__dispatch_on__", getattr(fn, "__dispatch_on__", []) + ["default"])
+    return fn
+
+
+class AutoDispatch:
+    @functools.cached_property
+    def __dispatch_table__(self):
+        return {
+            tag: meth
+            for attr in dir(self)
+            if attr != "__dispatch_table__"
+            and callable((meth := getattr(self, attr, None)))
+            and (tags := getattr(meth, "__dispatch_on__", None)) is not None
+            for tag in tags
+        }
+
+    def dispatch(self, event):
+        table = self.__dispatch_table__
+
+        def default():
+            table.get("default", lambda e: None)(event)
+
+        table.get(event, default)()
+
+
+class Exit(Exception):
+    ...
+
+
+class TUI(AutoDispatch):
+    def __rich__(self):
+        return ""
+
+    def run(
+        self,
+        stdin: int = sys.stdin.fileno(),
+        reader: typing.Callable[[int], typing.Callable[[], bytes | None]] = chreader,
+        console: None | Console = None,
+    ):
+        self.console = console or Console()
+        try:
+            with Live(
+                self, console=self.console, transient=True, auto_refresh=False
+            ) as live:
+                with chbreak(stdin=stdin, reader=reader) as readch:
+                    while ch := readch():
+                        self.dispatch(keystr(ch))
+                        live.refresh()
+        except Exit:
+            ...
+
+        return getattr(self, "result", lambda: None)()
 
 
 class AutoFocus(AutoDispatch):
@@ -52,7 +118,7 @@ class Escape(TUI):
         if key == self.key:
             raise Exit("Bye")
         else:
-            if hasattr(self.widget, 'dispatch'):
+            if hasattr(self.widget, "dispatch"):
                 self.widget.dispatch(key)
 
 
@@ -73,7 +139,7 @@ class Abort(TUI):
         if self.keys == self.seq:
             raise SystemExit()
         else:
-            if hasattr(self.widget, 'dispatch'):
+            if hasattr(self.widget, "dispatch"):
                 self.widget.dispatch(key)
 
 
@@ -86,11 +152,11 @@ class Framed(TUI):
 
     @default
     def passthrough(self, key):
-        if hasattr(self.content, 'dispatch'):
+        if hasattr(self.content, "dispatch"):
             self.content.dispatch(key)
 
     def result(self):
-        if hasattr(self.content, 'result'):
+        if hasattr(self.content, "result"):
             return self.content.result()
         else:
             return self.content
@@ -109,7 +175,7 @@ class Labelled(TUI):
         return t
 
     def dispatch(self, key):
-        if hasattr(self.widget, 'dispatch'):
+        if hasattr(self.widget, "dispatch"):
             self.widget.dispatch(key)
 
     def result(self):
@@ -165,6 +231,7 @@ class Button(TUI):
 
 class FocusFramed(Framed, AutoFocus):
     """Adds a focus-responsive frame to a widget that would otherwise not respond."""
+
     def __init__(self, content):
         self.focus = True
         super().__init__(content)
@@ -204,26 +271,28 @@ class FocusGroup(TUI):
 
     @default
     def dispatch_to_focus(self, key):
-        if hasattr(self.widgets[self.focus], 'dispatch'):
+        if hasattr(self.widgets[self.focus], "dispatch"):
             self.widgets[self.focus].dispatch(key)
 
     def result(self):
         return [w.result() for w in self.widgets]
+
 
 class Menu(FocusGroup):
     def __init__(self, *options: str):
         self.options = list(options)
         super().__init__(*(FocusFramed(o) for o in options))
 
-    @on('enter', 'space')
+    @on("enter", "space")
     def click(self):
         raise Exit
 
     def result(self):
-        if hasattr(self.options[self.focus], 'result'):
+        if hasattr(self.options[self.focus], "result"):
             return self.options[self.focus].result()
         else:
             return self.options[self.focus]
+
 
 class SearchList(TUI):
     def __init__(self, options: list[str]):
@@ -324,6 +393,7 @@ class SearchDataFrame(TUI):
             self.query += str(k)
             self.refresh()
 
+
 class SelectList(SearchList):
     RE_NUMSEQ = re.compile(r"\W*(\d+)\W*")
 
@@ -354,316 +424,3 @@ class SelectList(SearchList):
             ]
         except (ValueError, IndexError):
             return []
-
-
-def _fixed_width_partition(content, pivot, width):
-    """Split a sequence content about the pivot index into
-    start, center, end with fixed total width. Pivot must be < len(content).
-    """
-    width = width - 1
-    # len of portion
-    lstart = len(content[:pivot])
-    lend = len(content[pivot + 1 :])
-
-    # offset from pivot, floor/ceil accounts for odd widths
-    ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
-    oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
-
-    # bounding index in seq
-    istart = max(0, pivot - ostart)
-    iend = min(pivot + 1 + oend, len(content))
-
-    # partition content
-    start = content[istart:pivot]
-    center = content[pivot]
-    end = content[pivot + 1 : iend]
-    return start, center, end
-
-
-class EditLine(TUI, AutoFocus):
-    def __init__(self, text: str = ""):
-        self.line = text.replace("\n", "")
-        self.cursor = 0
-        self.focus = True
-
-    def __rich__(self):
-        return self
-
-    def result(self):
-        return self.line
-
-    def __rich_console__(self, console, options):
-        width = options.max_width
-        if self.cursor == len(self.line):
-            start, cursor, end = (
-                self.line[max(0, self.cursor - (width - 1)) : self.cursor],
-                " ",
-                "",
-            )
-        else:
-            start, cursor, end = _fixed_width_partition(
-                self.line, self.cursor, width
-            )
-        yield (
-            f"[bold cyan]{start}[on cyan]{cursor}[/]{end}[/]"
-            if self.focus
-            else f"{start}{cursor}{end}"
-        )
-
-    @on("left")
-    def cursor_left(self):
-        self.cursor = max(0, self.cursor - 1)
-
-    @on("right")
-    def cursor_right(self):
-        self.cursor = min(len(self.line), self.cursor + 1)
-
-    @on("ctrl+right")
-    def next_word(self):
-        next_space = self.line[self.cursor :].find(" ")
-        if next_space == -1:
-            self.cursor = len(self.line)
-        else:
-            self.cursor = self.cursor + next_space + 1
-
-    @on("ctrl+left")
-    def prev_word(self):
-        prev_space = self.line[max(0, self.cursor - 2) :: -1].find(" ")
-        if prev_space < 0:
-            self.cursor = 0
-        else:
-            self.cursor = self.cursor - prev_space - 1
-
-    @on("home")
-    def cursor_home(self):
-        self.cursor = 0
-
-    @on("end")
-    def cursor_end(self):
-        self.cursor = len(self.line)
-
-    @on("ctrl+h")
-    def delete_word(self):
-        prev_space = self.line[self.cursor - 1 :: -1].find(" ")
-        if prev_space == -1:
-            n = 0
-        else:
-            n = self.cursor - prev_space - 1
-        self.line = self.line[:n] + self.line[self.cursor :]
-        self.cursor = n
-
-    @default
-    def insert(self, char: str):
-        if len(char) > 1 or char == "\n":
-            return
-        self.line = self.line[: self.cursor] + char + self.line[self.cursor :]
-        self.cursor += 1
-
-    @on("backspace")
-    def backspace(self):
-        if self.cursor == 0:
-            return
-        self.line = self.line[: self.cursor - 1] + self.line[self.cursor :]
-        self.cursor -= 1
-
-    @on("space")
-    def space(self):
-        self.insert(" ")
-
-    @on("tab")
-    def tab(self):
-        self.insert("\t")
-
-
-class EditMultiline(TUI, AutoFocus):
-    def __init__(self, text: str = ""):
-        self.lines = list(text.split("\n"))
-        self.cursor = [0, 0]
-        self.focus = True
-
-    def result(self) -> str:
-        return "\n".join(self.lines)
-
-    def __rich__(self):
-        return self
-
-    def __rich_console__(self, console, options):
-        width, height = options.max_width, options.max_height-2
-        slines, cline, elines = _fixed_width_partition(
-            self.lines, self.cursor[0], height
-        )
-
-        if not 0 <= self.cursor[1] < len(cline):
-            sstr, cstr, estr = (
-                cline[max(0, self.cursor[1] - (width - 1)) : self.cursor[1]],
-                " ",
-                "",
-            )
-        else:
-            sstr, cstr, estr = _fixed_width_partition(cline, self.cursor[1], width)
-
-        # Render lines before cursor, if any
-        yield from (escape(line[: width]) for line in slines)
-
-        # Render cursor line
-        yield (
-            f"[bold yellow]{escape(sstr)}[on cyan]{cstr}[/]{escape(estr)}[/]"
-            if self.focus
-            else f"{escape(sstr)}[on white]{escape(cstr)}[/]{escape(estr)}"
-        )
-
-        # Render lines after cursor, if any
-        yield from (escape(line[: width]) for line in elines)
-
-
-    @on("left")
-    def cursor_left(self):
-        if self.cursor[1] != 0:
-            self.cursor[1] -= 1
-        else:
-            if self.cursor[0] != 0:
-                self.cursor[0] -= 1
-                self.cursor[1] = len(self.lines[self.cursor[0]])
-
-    @on("right")
-    def cursor_right(self):
-        if self.cursor[1] < len(self.lines[self.cursor[0]]):
-            self.cursor[1] += 1
-        else:
-            if self.cursor[0] < len(self.lines) - 1:
-                self.cursor[0] += 1
-                self.cursor[1] = 0
-
-    @on("up")
-    def cursor_up(self):
-        if self.cursor[0] > 0:
-            self.cursor[0] -= 1
-            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
-
-    @on("down")
-    def cursor_down(self):
-        if self.cursor[0] < len(self.lines) - 1:
-            self.cursor[0] += 1
-            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
-
-    @on("ctrl+right")
-    def next_word(self):
-        line = self.lines[self.cursor[0]]
-        next_space = line[self.cursor[1] :].find(" ")
-        if next_space == -1:
-            self.cursor[1] = len(line)
-        else:
-            self.cursor[1] = self.cursor[1] + next_space + 1
-
-    @on("ctrl+left")
-    def prev_word(self):
-        line = self.lines[self.cursor[0]]
-        prev_space = line[max(0, self.cursor[1] - 2) :: -1].find(" ")
-        if prev_space < 0:
-            self.cursor[1] = 0
-        else:
-            self.cursor[1] = self.cursor[1] - prev_space - 1
-
-    @on("home")
-    def cursor_home(self):
-        self.cursor[1] = 0
-
-    @on("end")
-    def cursor_end(self):
-        self.cursor[1] = len(self.lines[self.cursor[0]])
-
-    @on("ctrl+h")
-    def delete_word(self):
-        prev_space = self.lines[self.cursor[0]][: self.cursor[1] - 1][::-1].find(" ")
-        if prev_space == -1:
-            n = 0
-        else:
-            n = self.cursor[1] - prev_space - 2
-        self.lines[self.cursor[0]] = (
-            self.lines[self.cursor[0]][:n]
-            + self.lines[self.cursor[0]][self.cursor[1] :]
-        )
-        self.cursor[1] = n
-
-    @default
-    def insert(self, char: str):
-        if len(char) > 1:
-            return
-        if char == "\n":
-            rest = self.lines[self.cursor[0]][self.cursor[1] :]
-            self.lines[self.cursor[0]] = self.lines[self.cursor[0]][: self.cursor[1]]
-            self.lines.insert(self.cursor[0] + 1, rest)
-            self.cursor[0] += 1
-            self.cursor[1] = 0
-            return
-        line = self.lines[self.cursor[0]]
-        if line == "":
-            line = char
-        else:
-            line = line[: self.cursor[1]] + char + line[self.cursor[1] :]
-        self.cursor[1] += len(char)
-        self.lines[self.cursor[0]] = line
-
-    @on("backspace")
-    def backspace(self):
-        if self.cursor[1] != 0:
-            self.lines[self.cursor[0]] = (
-                self.lines[self.cursor[0]][: self.cursor[1] - 1]
-                + self.lines[self.cursor[0]][self.cursor[1] :]
-            )
-            self.cursor[1] -= 1
-        else:
-            if self.cursor[0] != 0:
-                length = len(self.lines[self.cursor[0] - 1])
-                self.lines[self.cursor[0] - 1] = (
-                    self.lines[self.cursor[0] - 1] + self.lines[self.cursor[0]]
-                )
-                self.cursor[1] = length
-                del self.lines[self.cursor[0]]
-                self.cursor[0] -= 1
-
-    @on("space")
-    def space(self):
-        self.insert(" ")
-
-    @on("enter")
-    def enter(self):
-        self.insert("\n")
-
-    @on("tab")
-    def tab(self):
-        self.insert("\t")
-
-
-class WatchCursor(TUI):
-    """Display cursor position with an editor."""
-
-    def __init__(self, editor):
-        self.editor = editor
-
-    def __rich__(self):
-        return Group(Panel.fit(f"Cursor: {self.editor.cursor}"), self.editor)
-
-    def dispatch(self, key):
-        if hasattr(self.editor, 'dispatch'):
-            self.editor.dispatch(key)
-
-    def result(self):
-        return self.editor.result()
-
-
-class Form(FocusGroup):
-    def __init__(self, content: list[str]):
-        self.labels = content
-        super().__init__(*(EditLine() for k in content))
-
-    def result(self):
-        return {l: w.result() for l, w in zip(self.labels, self.widgets)}
-
-    def __rich__(self):
-        t = Table.grid(padding=(0, 1, 0, 0))
-        t.add_column()
-        t.add_column()
-        for l, w in zip(self.labels, self.widgets):
-            t.add_row(f"[bold yellow]{l}[/]", w)
-        return t
