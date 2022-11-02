@@ -163,14 +163,16 @@ def chbreak(
 
 def on(*events):
     def decorate(fn: typing.Callable) -> typing.Callable:
-        setattr(fn, '__dispatch_on__', getattr(fn, "__dispatch_on__", []) + list(events))
+        setattr(
+            fn, "__dispatch_on__", getattr(fn, "__dispatch_on__", []) + list(events)
+        )
         return fn
 
     return decorate
 
 
 def default(fn: typing.Callable):
-    setattr(fn, '__dispatch_on__', getattr(fn, "__dispatch_on__", []) + ["default"])
+    setattr(fn, "__dispatch_on__", getattr(fn, "__dispatch_on__", []) + ["default"])
     return fn
 
 

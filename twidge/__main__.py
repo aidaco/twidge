@@ -6,7 +6,8 @@ import typer
 
 from .widgets import (
     Echo,
-    EditStr,
+    EditLine,
+    EditMultiline,
     Escape,
     Form,
     Framed,
@@ -40,7 +41,7 @@ def echo():
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(Escape(Framed(EditStr(content))).run())
+    print(Escape(Framed(EditMultiline(content))).run())
 
 
 @cli.command()
