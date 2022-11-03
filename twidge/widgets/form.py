@@ -14,14 +14,14 @@ class Form:
         )
 
     def result(self):
-        return {l: w.result() for l, w in zip(self.labels, self.fm.widgets)}
+        return [w.result() for w in self.fm.widgets]
 
     def __rich__(self):
         t = Table.grid(padding=(0, 1, 0, 0))
         t.add_column()
         t.add_column()
         for l, w in zip(self.labels, self.fm.widgets):
-            t.add_row(f"[bold yellow]{l}[/]", w)
+            t.add_row(f"[bold cyan]{l}[/]", w)
         return t
 
     @dispatch.on("tab")

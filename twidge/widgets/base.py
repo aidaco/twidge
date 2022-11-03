@@ -8,6 +8,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.styled import Styled
 from rich.table import Table
+from rich import print
 
 from twidge.core import chbreak, chreader, keystr
 
@@ -25,7 +26,6 @@ class TableDispatcher:
         self.table = table if table is not None else {}
         self._default = default
         self.inst = inst
-
     def dispatch(self, event):
         if res := self.table.get(event, lambda self: BUBBLE)(self.inst) is BUBBLE:
             res = self._default(self.inst, event)
@@ -105,13 +105,12 @@ def _auto_onblur(self):
 
 def _auto_filterreset(self):
     self.query = ""
-    self.last = self.full
+    self.reset()
 
 
 def _auto_filterbackspace(self):
     self.query = self.query[:-1]
-    self.last = self.full
-    self.last = self.filter()
+    self.reset()
 
 
 def _auto_filterinsert(self, key):
@@ -142,19 +141,19 @@ class Runner:
         console: None | Console = None,
     ):
         self.console = console or Console()
-        try:
-            with Live(
-                self.inst,
-                console=self.console,
-                transient=True,
-                auto_refresh=False,
-            ) as live:
-                with chbreak(stdin=stdin, reader=reader) as readch:
+        with Live(
+            self.inst,
+            console=self.console,
+            transient=True,
+            auto_refresh=False,
+        ) as live:
+            with chbreak(stdin=stdin, reader=reader) as readch:
+                try:
                     while ch := readch():
-                        self.inst.dispatch(keystr(ch))
-                        live.refresh()
-        except self.Exit:
-            ...
+                            self.inst.dispatch(keystr(ch))
+                            live.refresh()
+                except self.Exit:
+                    pass
 
         return getattr(self.inst, "result", lambda: None)()
 
@@ -288,7 +287,7 @@ class Labelled(Wrapper):
         t = Table.grid(padding=(0, 1, 0, 0))
         t.add_column()
         t.add_column()
-        t.add_row(f"[bold yellow]{self.label}[/]", self.content)
+        t.add_row(f"[bold cyan]{self.label}[/]", self.content)
         return t
 
 
@@ -353,6 +352,10 @@ class ListSearcher:
         self.full = list(options)
         self.last = self.full
 
+    def reset(self):
+        self.last = self.full
+        self.last = self.filter()
+
     def filter(self):
         return [e for e in self.last if re.search(self.query, e, re.IGNORECASE)]
 
@@ -372,25 +375,31 @@ class DataFrameSearcher:
 
     def __init__(self, df: pd.DataFrame, sep="\t", case=False):
         self.full = df
-        self.last = df
         self.case = case
         self.sep = sep
         self.query = ""
+        self.reset()
 
     def __rich__(self):
-        if len(self.subset) == 0:
+        if len(self.last) == 0:
             content = "No matches."
         else:
             content = Table(
-                *self.subset,
+                *self.last,
                 expand=True,
                 pad_edge=False,
                 padding=0,
             )
-            self.subset.head(10).apply(lambda r: content.add_row(*r), axis=1)
+            self.last.head(10).apply(lambda r: content.add_row(*r), axis=1)
         return Panel(content, title=self.query, title_align="left", style="bold cyan")
 
+    def reset(self):
+        self.last = self.full
+        self.last = self.filter()
+
     def filter(self) -> pd.DataFrame:
+        if len(self.last) == 0:
+            return self.last
         ft = self.last.agg(self.sep.join, axis=1)
         return self.last[ft.str.contains(self.query, case=self.case)]
 
@@ -402,8 +411,13 @@ class ListIndexer:
     dispatch = TableDispatcher().autofilter()
 
     def __init__(self, options: list[str]):
+        self.query=''
         self.full = list(options)
-        self.last = self.full
+        self.last = self.filter()
+
+    def reset(self):
+        self.last = []
+        self.last = self.filter()
 
     def result(self):
         return self.last
@@ -432,7 +446,7 @@ class ListIndexer:
 class ListSelector:
     dispatch = TableDispatcher()
 
-    def __init__(self, *options: str):
+    def __init__(self, options: list[str]):
         self.options = list(options)
         self.selected = [False] * len(self.options)
         self.fm = FocusManager(*self.options)
