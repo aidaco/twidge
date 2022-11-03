@@ -5,15 +5,14 @@ import pandas
 import typer
 
 from .widgets import (
+    Close,
+    DataFrameSearcher,
     Echo,
-    EditLine,
-    EditMultiline,
-    Escape,
+    EditString,
     Form,
     Framed,
-    SearchDataFrame,
-    SearchList,
-    SelectList,
+    ListIndexer,
+    ListSearcher,
 )
 
 cli = typer.Typer()
@@ -31,32 +30,32 @@ def search(file: str):
         case ".xls":
             df = pandas.read_excel(path)
     df = df.replace(numpy.nan, "-").astype(str)
-    Escape(SearchDataFrame(df)).run()
+    Close("ctrl+c", Framed(DataFrameSearcher(df))).run()
 
 
 @cli.command()
 def echo():
-    Escape(Framed(Echo())).run()
+    Close("ctrl+c", Framed(Echo())).run()
 
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(Escape(Framed(EditMultiline(content))).run())
+    print(Close("ctrl+c", Framed(EditString(content))).run())
 
 
 @cli.command()
 def form(labels: str):
-    print(Escape(Framed(Form(labels.split(",")))).run())
+    print(Close("ctrl+c", Framed(Form(labels.split(",")))).run())
 
 
 @cli.command()
 def filter(options: str):
-    print(Escape(Framed(SearchList(options.split(",")))).run())
+    print(Close("ctrl+c", Framed(ListSearcher(options.split(",")))).run())
 
 
 @cli.command()
 def select(options: str):
-    print(Escape(Framed(SelectList(options.split(",")))).run())
+    print(Close("ctrl+c", Framed(ListIndexer(options.split(",")))).run())
 
 
 if __name__ == "__main__":
