@@ -10,156 +10,59 @@ from rich.styled import Styled
 from rich.table import Table
 from rich import print
 
-from twidge.core import chbreak, chreader, keystr
-
-BUBBLE = object()
+from twidge.core import Runner, Dispatcher
 
 
-class TableDispatcher:
-    def __init__(
-        self,
-        table: dict[typing.Any, typing.Callable[[typing.Any], typing.Any]]
-        | None = None,
-        default: typing.Callable[[typing.Any], typing.Any] = lambda e: BUBBLE,
-        inst=None,
-    ):
-        self.table = table if table is not None else {}
-        self._default = default
-        self.inst = inst
-    def dispatch(self, event):
-        if res := self.table.get(event, lambda self: BUBBLE)(self.inst) is BUBBLE:
-            res = self._default(self.inst, event)
-            # all relevant data should be made accessible with inst, event
-        return res
 
-    def __call__(self, event):
-        return self.dispatch(event)
-
-    def on(self, *events) -> typing.Callable[[typing.Callable], typing.Callable]:
-        def decorate(fn: typing.Callable) -> typing.Callable:
-            for e in events:
-                self.table[e] = fn
-            return fn
-
-        return decorate
-
-    def default(self, fn: typing.Callable) -> typing.Callable:
-        self._default = fn
-        return fn
-
-    def update(self, mapping, default=None):
-        self.table.update(mapping)
-        if default is not None:
-            self._default = default
-        return self
-
-    def __get__(self, obj, obj_type=None):
-        return type(self)(table=self.table, default=self._default, inst=obj)
-
-    def autoignore(self):
-        return self.update({}, default=_auto_ignore)
-
-    def autofocus(self):
-        return self.update(
-            {
-                "focus": _auto_onfocus,
-                "blur": _auto_onblur,
-            }
-        )
-
-    def autoexit(self, *keys: str):
-        return self.update({key: _auto_onexit for key in keys})
-
-    def autoclick(self):
-        return self.update({"space": _auto_onclick, "enter": _auto_onclick})
-
-    def autofilter(self):
-        return self.update(
-            {
-                "ctrl+d": _auto_filterreset,
-                "backspace": _auto_filterbackspace,
-            },
-            default=_auto_filterinsert,
-        )
-
-
-def _auto_ignore(self, key):
+def ignore(self, key):
     pass
 
 
-def _auto_onexit(self):
-    self.runner.exit()
+def forward(attr: str):
+    def _forward(self, key):
+        getattr(self, attr)(key)
+
+    return _forward
 
 
-def _auto_onclick(self):
+def stop(self):
+    self.run.stop()
+
+
+def click(self):
     self.click()
 
 
-def _auto_onfocus(self):
-    self.focus = True
+class Focus:
+    def focus(self):
+        self.focus = True
+
+    def blur(self):
+        self.focus = False
+
+    table = {"tab": focus, "shift+tab": blur}
 
 
-def _auto_onblur(self):
-    self.focus = False
+class Filter:
+    def clear(self):
+        self.query = ""
+        self.reset()
 
+    def backspace(self):
+        self.query = self.query[:-1]
+        self.reset()
 
-def _auto_filterreset(self):
-    self.query = ""
-    self.reset()
+    table = {
+        "ctrl+d": clear,
+        "backspace": backspace,
+    }
 
-
-def _auto_filterbackspace(self):
-    self.query = self.query[:-1]
-    self.reset()
-
-
-def _auto_filterinsert(self, key):
-    if key == "space":
-        key = " "
-    if len(key) == 1:
-        self.query += str(key)
-        self.last = self.filter()
-
-
-class Runner:
-    class Exit(Exception):
-        ...
-
-    def __init__(self, inst=None):
-        self.inst = inst
-
-    def __get__(self, obj, obj_type=None):
-        return type(self)(inst=obj)
-
-    def exit(self):
-        raise self.Exit()
-
-    def run(
-        self,
-        stdin: int = sys.stdin.fileno(),
-        reader: typing.Callable[[int], typing.Callable[[], bytes | None]] = chreader,
-        console: None | Console = None,
-    ):
-        self.console = console or Console()
-        with Live(
-            self.inst,
-            console=self.console,
-            transient=True,
-            auto_refresh=False,
-        ) as live:
-            with chbreak(stdin=stdin, reader=reader) as readch:
-                try:
-                    while ch := readch():
-                            self.inst.dispatch(keystr(ch))
-                            live.refresh()
-                except self.Exit:
-                    pass
-
-        return getattr(self.inst, "result", lambda: None)()
-
-    def __call__(self, *args, **kwargs):
-        return self.run(*args, **kwargs)
-
+    def default(self, key):
+        if key == "space":
+            key = " "
+        if len(key) == 1:
+            self.query += str(key)
+            self.last = self.filter()
 
 class Wrapper:
     def __init__(self, content):
@@ -192,7 +95,7 @@ class Echo:
 
 
 class Toggle:
-    dispatch = TableDispatcher().autoclick().autoignore()
+    dispatch = Dispatcher().autoclick().autoignore()
 
     def __init__(self, value: bool, on_true, on_false):
         self.value = value
@@ -210,7 +113,7 @@ class Toggle:
 
 
 class Button:
-    dispatch = TableDispatcher().autoclick().autoignore()
+    dispatch = Dispatcher().autoclick().autoignore()
 
     def __init__(self, content, target: typing.Callable):
         self.content = content
@@ -321,7 +224,7 @@ class FocusManager:
 
 
 class FocusGroup:
-    dispatch = TableDispatcher()
+    dispatch = Dispatcher()
 
     def __init__(self, *widgets):
         self.fm = FocusManager(*widgets)
@@ -346,7 +249,7 @@ class FocusGroup:
 
 
 class ListSearcher:
-    dispatch = TableDispatcher().autofilter()
+    dispatch = Dispatcher().autofilter()
 
     def __init__(self, options: list[str]):
         self.full = list(options)
@@ -371,7 +274,7 @@ class ListSearcher:
 
 
 class DataFrameSearcher:
-    dispatch = TableDispatcher().autofilter()
+    dispatch = Dispatcher().autofilter()
 
     def __init__(self, df: pd.DataFrame, sep="\t", case=False):
         self.full = df
@@ -408,10 +311,10 @@ class ListIndexer:
     """Retrieve items from a list by indices."""
 
     RE_NUMSEQ = re.compile(r"\W*(\d+)\W*")
-    dispatch = TableDispatcher().autofilter()
+    dispatch = Dispatcher().autofilter()
 
     def __init__(self, options: list[str]):
-        self.query=''
+        self.query = ""
         self.full = list(options)
         self.last = self.filter()
 
@@ -444,7 +347,7 @@ class ListIndexer:
 
 
 class ListSelector:
-    dispatch = TableDispatcher()
+    dispatch = Dispatcher()
 
     def __init__(self, options: list[str]):
         self.options = list(options)

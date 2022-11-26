@@ -1,8 +1,14 @@
-import contextlib
+from contextlib import contextmanager
+import string
 import os
 import sys
 import termios
-import typing
+from inspect import signature
+from dataclasses import dataclass, field
+from typing import Callable, Protocol, Any, BinaryIO, TypeAlias, runtime_checkable
+
+from rich.console import Console, RenderableType
+from rich.live import Live
 
 SPECIALMAP = {
     b" ": "space",
@@ -72,37 +78,7 @@ CTRLMAP = {
     b"\x1b[1;5D": "ctrl+left",
 }
 
-
-ALTMAP = {
-    b"\x1ba": "alt+a",
-    b"\x1bb": "alt+b",
-    b"\x1bc": "alt+c",
-    b"\x1bd": "alt+d",
-    b"\x1be": "alt+e",
-    b"\x1bf": "alt+f",
-    b"\x1bg": "alt+g",
-    b"\x1bh": "alt+h",
-    b"\x1bi": "alt+i",
-    b"\x1bj": "alt+j",
-    b"\x1bk": "alt+k",
-    b"\x1bl": "alt+l",
-    b"\x1bm": "alt+m",
-    b"\x1bn": "alt+n",
-    b"\x1bo": "alt+o",
-    b"\x1bp": "alt+p",
-    b"\x1bq": "alt+q",
-    b"\x1br": "alt+r",
-    b"\x1bs": "alt+s",
-    b"\x1bt": "alt+t",
-    b"\x1bu": "alt+u",
-    b"\x1bv": "alt+v",
-    b"\x1bw": "alt+w",
-    b"\x1bx": "alt+x",
-    b"\x1by": "alt+y",
-    b"\x1bz": "alt+z",
-}
-
-
+ALTMAP = {b"\x1b" + ch.encode(): f"alt+{ch}" for ch in string.ascii_lowercase}
 KEYMAP = CTRLMAP | ALTMAP | FUNCTIONMAP | SPECIALMAP
 
 
@@ -110,24 +86,15 @@ def keystr(ch: bytes) -> str:
     return KEYMAP.get(ch, ch.decode())
 
 
-def chreader(stdin: int = sys.stdin.fileno()) -> typing.Callable[[], bytes | None]:
-    io = open(stdin, "rb", buffering=0, closefd=False)
-
-    def read() -> bytes | None:
-        return io.read(6)
-
-    return read
-
-
-@contextlib.contextmanager
+@contextmanager
 def chbreak(
-    stdin: int = sys.stdin.fileno(),
-    block: bool = True,
-    reader: typing.Callable[[int], typing.Callable[[], bytes | None]] = chreader,
+    stdin: int | None = None,
 ):
-    """Opens stdin for reading in character break mode; on entrance, returns a read function. Unix only."""
+    """Configures stdin for reading in character break mode;
+    IO sold separate. Unix specific."""
 
     try:
+        stdin = stdin or sys.stdin.fileno()
         old = termios.tcgetattr(stdin)
         mode = old.copy()
 
@@ -135,11 +102,7 @@ def chbreak(
         # Removing OPOST fixes issues with carriage returns.
         # Needs further investigation.
         mode[0] &= ~(
-            termios.BRKINT
-            | termios.ICRNL
-            | termios.INPCK
-            | termios.ISTRIP
-            | termios.IXON
+            termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON
         )
         mode[2] &= ~(termios.CSIZE | termios.PARENB)
         mode[2] |= termios.CS8
@@ -149,9 +112,161 @@ def chbreak(
         termios.tcsetattr(stdin, termios.TCSAFLUSH, mode)
         # End of modified tty.setraw
 
-        os.set_blocking(stdin, block)
-        yield reader(stdin)
-
+        # Non-blocking io; disabled b/c tricky.
+        # os.set_blocking(stdin, False)
+        yield
     finally:
-        os.set_blocking(stdin, not block)
+
+        # Resume blocking io, see above.
+        # os.set_blocking(stdin, True)
         termios.tcsetattr(stdin, termios.TCSADRAIN, old)
+
+
+class EventBase:
+    ...
+
+
+class ResponseBase:
+    ...
+
+
+Event: TypeAlias = EventBase | str | bytes
+Response: TypeAlias = ResponseBase | str | bytes | None
+SingleHandler: TypeAlias = Callable[[], Response | None]
+MultiHandler: TypeAlias = Callable[[Event], Response | None]
+Handler: TypeAlias = SingleHandler | MultiHandler
+
+
+class Reader(Protocol):
+    def __init__(self, io: BinaryIO):
+        ...
+
+    def read(self) -> Event:
+        ...
+
+
+class Dispatcher(Protocol):
+    dispatch: MultiHandler
+
+
+class Runner(Protocol):
+    def __init__(self, widget, *args, **kwargs):
+        ...
+
+    def start(self) -> None:
+        ...
+
+    def stop(self) -> None:
+        ...
+
+
+class BytesReader:
+    def __init__(self, io: BinaryIO):
+        self.io = io
+
+    def read(self) -> bytes:
+        return self.io.read(6)
+
+
+class StrReader(BytesReader):
+    def read(self) -> str:
+        return keystr(super().read())
+
+
+Widget: TypeAlias = Dispatcher | RenderableType  # no type intersection op
+
+
+@dataclass
+class WidgetRunner:
+    widget: Widget
+    reader: Reader = StrReader
+    stdin: int | None = None
+    console: Console | None = None
+    stopped: bool = False
+
+    def start(self):
+        self.stdin = self.stdin or sys.stdin.fileno()
+        self.console = self.console or Console()
+        with Live(
+            self.widget,
+            console=self.console,
+            transient=True,
+            auto_refresh=False,
+        ) as live:
+            with chbreak(stdin=self.stdin):
+                read = self.reader(open(self.stdin, "rb", buffering=0, closefd=False)).read
+                self.stopped = False
+                while not self.stopped:
+                    self.widget.dispatch(read())
+                    live.refresh()
+
+    def stop(self):
+        self.stopped = True
+
+    __call__ = start
+
+
+@dataclass
+class WidgetDispatcher:
+    widget: Widget
+    table: dict[Event, Handler] = field(default_factory=dict)
+    default: Handler | None = None
+
+    def dispatch(self, event: Event) -> Response:
+        fn = self.table.get(event, self.default)
+        if fn is None:
+            raise ValueError(f"No handler for {event}")
+        match len(signature(fn).parameters):
+            case 0:
+                return fn()
+            case 1:
+                return fn(event)
+            case _:
+                raise TypeError(f"Handler should take one or zero arguments.")
+
+    __call__ = dispatch
+
+    def update(self, table: dict[Event, Handler], default: Handler | None = None):
+        self.table.update(table)
+        if default is not None:
+            self._default = default
+        return self
+
+
+class RunBuilder:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def __get__(self, obj, obj_type=None):
+        obj.run = WidgetRunner(obj, *self.args, **self.kwargs)
+        return obj.run
+
+
+@dataclass
+class DispatchBuilder:
+    handler_methods: dict[Event, str] = field(default_factory=dict)
+    table: dict[Event, Handler] = field(default_factory=dict)
+    defaultfn: Handler | None = None
+
+    def on(self, *events: Event) -> Callable[[Handler], Handler]:
+        def decorate(fn: Handler) -> Handler:
+            for e in events:
+                self.handler_methods[e] = fn.__name__
+            return fn
+
+        return decorate
+
+    def default(self, fn: Handler) -> Handler:
+        self.defaultfn = fn.__name__
+        return fn
+
+    def __get__(self, obj, obj_type=None):
+        if obj is None:
+            return self
+        table = self.table | {e: getattr(obj, m) for e, m in self.handler_methods.items()}
+        default = (
+            getattr(obj, self.defaultfn) if isinstance(self.defaultfn, str) else self.defaultfn
+        )
+        obj.dispatch = WidgetDispatcher(obj, table=table, default=default)
+        return obj.dispatch

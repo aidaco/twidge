@@ -5,11 +5,12 @@ from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
 
-from twidge.widgets.base import TableDispatcher, Wrapper
+from twidge.core import Dispatcher, Runner
+from twidge.widgets.base import Wrapper, Close
 
 
-class EditString:
-    dispatch = TableDispatcher().autofocus()
+class StringView:
+    dispatch = Dispatcher().autofocus()
 
     def __init__(
         self,
@@ -106,6 +107,55 @@ class EditString:
     def cursor_end(self):
         self.cursor[1] = len(self.lines[self.cursor[0]])
 
+    @dispatch.on("up")
+    def cursor_up(self):
+        if self.multiline and self.cursor[0] > 0:
+            self.cursor[0] -= 1
+            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
+
+    @dispatch.on("down")
+    def cursor_down(self):
+        if self.multiline and self.cursor[0] < len(self.lines) - 1:
+            self.cursor[0] += 1
+            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
+
+    @dispatch.default
+    def dropkeys(self, _):
+        ...
+
+
+def _fullview(content, center, width):
+    """Pass through a full view of the content without truncation. Wraps lines."""
+    return content[:center], content[center], content[center + 1 :]
+
+
+def _scrollview(content, center, width):
+    """Split a sequence content about the pivot index into
+    start, center, end with fixed total width. Pivot must be < len(content).
+    """
+    width = width - 1
+    # len of portion
+    lstart = len(content[:center])
+    lend = len(content[center + 1 :])
+
+    # offset from center, floor/ceil accounts for odd widths
+    ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
+    oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
+
+    # bounding index in seq
+    istart = max(0, center - ostart)
+    iend = min(center + 1 + oend, len(content))
+
+    # partition content
+    start = content[istart:center]
+    end = content[center + 1 : iend]
+    center = content[center]
+    return start, center, end
+
+
+class EditString(StringView):
+    dispatch = Dispatcher().autofocus()
+
     @dispatch.on("backspace")
     def backspace(self):
         if self.cursor[1] != 0:
@@ -123,18 +173,6 @@ class EditString:
                 self.cursor[1] = length
                 del self.lines[self.cursor[0]]
                 self.cursor[0] -= 1
-
-    @dispatch.on("up")
-    def cursor_up(self):
-        if self.multiline and self.cursor[0] > 0:
-            self.cursor[0] -= 1
-            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
-
-    @dispatch.on("down")
-    def cursor_down(self):
-        if self.multiline and self.cursor[0] < len(self.lines) - 1:
-            self.cursor[0] += 1
-            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
 
     @dispatch.on("ctrl+h")
     def delete_word(self):
@@ -172,35 +210,6 @@ class EditString:
             line = line[: self.cursor[1]] + char + line[self.cursor[1] :]
         self.cursor[1] += len(char)
         self.lines[self.cursor[0]] = line
-
-
-def _fullview(content, center, width):
-    """Pass through a full view of the content without truncation. Wraps lines."""
-    return content[:center], content[center], content[center + 1 :]
-
-
-def _scrollview(content, center, width):
-    """Split a sequence content about the pivot index into
-    start, center, end with fixed total width. Pivot must be < len(content).
-    """
-    width = width - 1
-    # len of portion
-    lstart = len(content[:center])
-    lend = len(content[center + 1 :])
-
-    # offset from center, floor/ceil accounts for odd widths
-    ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
-    oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
-
-    # bounding index in seq
-    istart = max(0, center - ostart)
-    iend = min(center + 1 + oend, len(content))
-
-    # partition content
-    start = content[istart:center]
-    end = content[center + 1 : iend]
-    center = content[center]
-    return start, center, end
 
 
 class WatchCursor(Wrapper):
