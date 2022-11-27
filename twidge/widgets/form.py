@@ -1,11 +1,13 @@
 from rich.table import Table
 
-from twidge.widgets.base import FocusManager, TableDispatcher
+from twidge.core import Dispatch, Run
+from twidge.widgets.base import FocusManager
 from twidge.widgets.editors import EditString
 
 
 class Form:
-    dispatch = TableDispatcher()
+    run = Run()
+    dispatch = Dispatch()
 
     def __init__(self, content: list[str]):
         self.labels = content
@@ -13,8 +15,9 @@ class Form:
             *(EditString(multiline=False, overflow="wrap") for k in content)
         )
 
+    @property
     def result(self):
-        return [w.result() for w in self.fm.widgets]
+        return [w.result for w in self.fm.widgets]
 
     def __rich__(self):
         t = Table.grid(padding=(0, 1, 0, 0))
@@ -34,4 +37,4 @@ class Form:
 
     @dispatch.default
     def passthrough(self, event):
-        self.fm.dispatch(event)
+        self.fm.focused.dispatch(event)

@@ -1,15 +1,16 @@
 from twidge.widgets.base import (
     Button,
-    Close,
-    DataFrameSearcher,
+    Closeable,
+    Crashable,
     Echo,
-    Escape,
+    EchoBytes,
     FocusGroup,
     Framed,
+    Indexer,
     Labelled,
-    ListIndexer,
-    ListSearcher,
-    ListSelector,
+    Searcher,
+    Selector,
+    Toggle,
 )
 from twidge.widgets.editors import EditString
 from twidge.widgets.form import Form

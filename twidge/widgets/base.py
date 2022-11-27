@@ -2,256 +2,120 @@ import re
 import sys
 import typing
 
-import pandas as pd
-from rich.console import Console, Group
-from rich.live import Live
+from rich.console import Group, RenderableType
 from rich.panel import Panel
+from rich.style import Style
 from rich.styled import Styled
 from rich.table import Table
-from rich import print
 
-from twidge.core import Runner, Dispatcher
+from twidge.core import BytesReader, Dispatch, Event, Run, SingleHandler
+
+# --- Dispatch fragments
 
 
-
-def ignore(self, key):
+def ignore(event):
     pass
 
 
-def forward(attr: str):
-    def _forward(self, key):
-        getattr(self, attr)(key)
+class IgnoreDispatch(Dispatch):
+    """Dispatch that ignores events by default."""
 
-    return _forward
-
-
-def stop(self):
-    self.run.stop()
+    def __init__(self, *args, **kwargs):
+        super().__init__(defaultfn=ignore)
 
 
-def click(self):
-    self.click()
+# ---
 
 
-class Focus:
-    def focus(self):
-        self.focus = True
-
-    def blur(self):
-        self.focus = False
-
-    table = {"tab": focus, "shift+tab": blur}
-
-
-class Filter:
-    def clear(self):
-        self.query = ""
-        self.reset()
-
-    def backspace(self):
-        self.query = self.query[:-1]
-        self.reset()
-
-    table = {
-        "ctrl+d": clear,
-        "backspace": backspace,
-    }
-
-    def default(self, key):
-        if key == "space":
-            key = " "
-        if len(key) == 1:
-            self.query += str(key)
-            self.last = self.filter()
-
-class Wrapper:
-    def __init__(self, content):
-        self.content = content
-
-    def __rich__(self):
-        return self.content
-
-    def dispatch(self, key):
-        if hasattr(self.content, "dispatch"):
-            self.content.dispatch(key)
-
-    def result(self):
-        if hasattr(self.content, "result"):
-            return self.content.result()
-        else:
-            return self.content
+# --- Simple Widgets
 
 
 class Echo:
     def __init__(self):
-        self.keys = []
+        self.history = ""
 
-    def dispatch(self, key):
-        self.keys.append(key)
+    run = Run()
+    dispatch = Dispatch()
+
+    @dispatch.on("ctrl+c")
+    def stop(self) -> None:
+        self.run.stop()
+
+    @dispatch.default
+    def default(self, key: str):
+        self.history += key
 
     def __rich__(self):
-        chars = (f"'{ch}'" for ch in self.keys)
-        return "[cyan]" + " ".join(chars) + "[/]"
+        return f"{self.history}"
+
+
+class EchoBytes:
+    def __init__(self):
+        self.history = b""
+
+    run = Run(reader=BytesReader)
+    dispatch = Dispatch()
+
+    @dispatch.on(b"\x7f")
+    def stop(self):
+        self.run.stop()
+
+    @dispatch.default
+    def default(self, key: str):
+        self.history += key
+
+    def __rich__(self):
+        return f"{self.history}"
 
 
 class Toggle:
-    dispatch = Dispatcher().autoclick().autoignore()
-
-    def __init__(self, value: bool, on_true, on_false):
-        self.value = value
-        self.on_true = on_true
-        self.on_false = on_false
-
-    def __rich__(self):
-        return self.on_true if self.value else self.on_false
-
-    def click(self):
-        self.value = not self.value
-
+    @property
     def result(self):
         return self.value
 
+    def __init__(
+        self,
+        value: bool = True,
+        true: RenderableType = "True",
+        false: RenderableType = "False",
+    ):
+        self.value = value
+        self.true = true
+        self.false = false
+
+    run = Run()
+    dispatch = IgnoreDispatch()
+
+    @dispatch.on("space")
+    def toggle(self):
+        self.value = not self.value
+
+    def __rich__(self):
+        return self.true if self.value else self.false
+
 
 class Button:
-    dispatch = Dispatcher().autoclick().autoignore()
-
-    def __init__(self, content, target: typing.Callable):
+    def __init__(self, content: RenderableType, target: typing.Callable):
         self.content = content
-        self.click = target
+        self.target = target
+
+    run = Run()
+    dispatch = IgnoreDispatch()
+
+    @dispatch.on("enter")
+    def trigger(self):
+        return self.target()
 
     def __rich__(self):
-        return Panel.fit(self.content)
+        return self.content
 
 
-class Close(Wrapper):
-    run = Runner()
-
-    def __init__(self, key: str, content):
-        self.key = key
-        super().__init__(content)
-
-    def dispatch(self, key):
-        if key == self.key:
-            self.run.exit()
-        else:
-            super().dispatch(key)
-
-
-class Escape(Wrapper):
-    run = Runner()
-
-    def __init__(self, seq: list[str], content):
-        self.seq = seq
-        self.keys = [""] * len(seq)
-        super().__init__(content)
-
-    def dispatch(self, event):
-        self.keys = self.keys[1:] + [event]
-        if self.keys == self.seq:
-            raise SystemExit()
-        else:
-            super().dispatch(event)
-
-
-class FocusHighlight(Wrapper):
-    def __rich__(self):
-        focus = getattr(self, "focus", False)
-        return Styled(self.content, style="yellow" if focus else "")
-
-    def dispatch(self, event):
-        if event == "focus":
-            self.focus = True
-        elif event == "blur":
-            self.focus = False
-        else:
-            super().dispatch(event)
-
-
-class Framed(Wrapper):
-    def __rich__(self):
-        focus = getattr(self, "focus", False)
-        return Panel.fit(self.content, border_style="green" if focus else "")
-
-    def dispatch(self, event):
-        if event == "focus":
-            self.focus = True
-        elif event == "blur":
-            self.focus = False
-        else:
-            super().dispatch(event)
-
-
-class Labelled(Wrapper):
-    def __init__(self, label: str, content):
-        self.label = label
-        super().__init__(content)
-
-    def __rich__(self):
-        t = Table.grid(padding=(0, 1, 0, 0))
-        t.add_column()
-        t.add_column()
-        t.add_row(f"[bold cyan]{self.label}[/]", self.content)
-        return t
-
-
-class FocusManager:
-    def __init__(self, *widgets, focus: int = 0):
-        self.widgets = list(widgets)
-        self.focus = focus
-        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
-        for w in self.widgets[self.focus + 1 :]:
-            getattr(w, "dispatch", lambda e: None)("blur")
-
-    def forward(self):
-        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("blur")
-        if self.focus == len(self.widgets) - 1:
-            self.focus = 0
-        else:
-            self.focus += 1
-        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
-
-    def back(self):
-        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("blur")
-        if self.focus == 0:
-            self.focus = len(self.widgets) - 1
-        else:
-            self.focus -= 1
-        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
-
-    def dispatch(self, key):
-        if hasattr(self.widgets[self.focus], "dispatch"):
-            self.widgets[self.focus].dispatch(key)
-
-
-class FocusGroup:
-    dispatch = Dispatcher()
-
-    def __init__(self, *widgets):
-        self.fm = FocusManager(*widgets)
-
-    def __rich__(self):
-        return Group(*self.fm.widgets)
-
-    def result(self):
-        return [w.result() for w in self.fm.widgets]
-
-    @dispatch.on("tab")
-    def focus_advance(self):
-        self.fm.forward()
-
-    @dispatch.on("shift+tab")
-    def focus_back(self):
-        self.fm.back()
-
-    @dispatch.default
-    def passthrough(self, event):
-        self.fm.dispatch(event)
-
-
-class ListSearcher:
-    dispatch = Dispatcher().autofilter()
+class Searcher:
+    run = Run()
+    dispatch = Dispatch()
 
     def __init__(self, options: list[str]):
+        self.query = ""
         self.full = list(options)
         self.last = self.full
 
@@ -262,6 +126,7 @@ class ListSearcher:
     def filter(self):
         return [e for e in self.last if re.search(self.query, e, re.IGNORECASE)]
 
+    @property
     def result(self):
         return self.last
 
@@ -272,46 +137,31 @@ class ListSearcher:
             content = Group(*self.last, fit=True)
         return Group(f"[bold cyan]{self.query}[/]", content)
 
-
-class DataFrameSearcher:
-    dispatch = Dispatcher().autofilter()
-
-    def __init__(self, df: pd.DataFrame, sep="\t", case=False):
-        self.full = df
-        self.case = case
-        self.sep = sep
+    @dispatch.on("ctrl+d")
+    def clear(self):
         self.query = ""
         self.reset()
 
-    def __rich__(self):
-        if len(self.last) == 0:
-            content = "No matches."
-        else:
-            content = Table(
-                *self.last,
-                expand=True,
-                pad_edge=False,
-                padding=0,
-            )
-            self.last.head(10).apply(lambda r: content.add_row(*r), axis=1)
-        return Panel(content, title=self.query, title_align="left", style="bold cyan")
+    @dispatch.on("backspace")
+    def backspace(self):
+        self.query = self.query[:-1]
+        self.reset()
 
-    def reset(self):
-        self.last = self.full
-        self.last = self.filter()
-
-    def filter(self) -> pd.DataFrame:
-        if len(self.last) == 0:
-            return self.last
-        ft = self.last.agg(self.sep.join, axis=1)
-        return self.last[ft.str.contains(self.query, case=self.case)]
+    @dispatch.default
+    def default(self, key):
+        if key == "space":
+            key = " "
+        if len(key) == 1:
+            self.query += str(key)
+            self.last = self.filter()
 
 
-class ListIndexer:
+class Indexer:
     """Retrieve items from a list by indices."""
 
     RE_NUMSEQ = re.compile(r"\W*(\d+)\W*")
-    dispatch = Dispatcher().autofilter()
+    run = Run()
+    dispatch = Dispatch()
 
     def __init__(self, options: list[str]):
         self.query = ""
@@ -322,6 +172,7 @@ class ListIndexer:
         self.last = []
         self.last = self.filter()
 
+    @property
     def result(self):
         return self.last
 
@@ -345,9 +196,30 @@ class ListIndexer:
         except (ValueError, IndexError):
             return []
 
+    @dispatch.on("ctrl+d")
+    def clear(self):
+        self.query = ""
+        self.reset()
 
-class ListSelector:
-    dispatch = Dispatcher()
+    @dispatch.on("backspace")
+    def backspace(self):
+        self.query = self.query[:-1]
+        self.reset()
+
+    @dispatch.on("space")
+    def space(self):
+        self.query += " "
+
+    @dispatch.default
+    def default(self, key):
+        if len(key) == 1:
+            self.query += str(key)
+            self.last = self.filter()
+
+
+class Selector:
+    run = Run()
+    dispatch = Dispatch()
 
     def __init__(self, options: list[str]):
         self.options = list(options)
@@ -381,5 +253,220 @@ class ListSelector:
     def passthrough(self, event):
         self.fm.dispatch(event)
 
+    @property
     def result(self):
         return [opt for opt, sel in zip(self.options, self.selected) if sel]
+
+
+# ---
+
+# --- Wrapper widgets
+
+
+class KeyTrigger:
+    def __init__(self, trigger: Event, handler: SingleHandler, content):
+        self.trigger = trigger
+        self.handler = handler
+        self.content = content
+
+    run = Run()
+
+    def dispatch(self, event: Event):
+        if event == self.trigger:
+            self.handler()
+        else:
+            return self.content.dispatch(event)
+
+    @property
+    def result(self):
+        return self.content.result
+
+    def __rich__(self):
+        return self.content
+
+
+class SequenceTrigger:
+    def __init__(self, trigger: list[Event], handler: SingleHandler, content):
+        self.trigger = trigger
+        self.events = [None] * len(trigger)
+        self.handler = handler
+        self.content = content
+
+    run = Run()
+
+    @property
+    def result(self):
+        return self.content.result
+
+    def dispatch(self, event):
+        self.events = self.events[1:] + [event]
+        if self.events == self.trigger:
+            return self.handler()
+        else:
+            return self.content.dispatch(event)
+
+
+class Crashable(SequenceTrigger):
+    def __init__(self, trigger: list[Event], content):
+        super().__init__(trigger, lambda: sys.exit(), content)
+
+
+class Closeable(KeyTrigger):
+    def __init__(self, trigger: Event, content):
+        super().__init__(trigger, self.run.stop, content)
+
+
+class Framed:
+    run = Run()
+
+    def __init__(self, content):
+        self.content = content
+
+    def dispatch(self, event):
+        return self.content.dispatch(event)
+
+    def __rich__(self):
+        return Panel.fit(self.content)
+
+    @property
+    def result(self):
+        return self.content.result
+
+
+class Labelled:
+    def __init__(self, label, content):
+        self.label = label
+        self.content = content
+
+    def dispatch(self, event):
+        return self.content.dispatch(event)
+
+    @property
+    def result(self):
+        return self.content.result
+
+    def __rich__(self):
+        t = Table.grid(padding=(0, 1, 0, 0))
+        t.add_column()
+        t.add_column()
+        t.add_row(f"[bold cyan]{self.label}[/]", self.content)
+        return t
+
+
+# --- Focusing
+
+
+class FocusManager:
+    def __init__(self, *widgets, focus: int = 0):
+        self.widgets = list(widgets)
+        self.focus = focus
+        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
+        for w in self.widgets[self.focus + 1 :]:
+            getattr(w, "dispatch", lambda e: None)("blur")
+
+    @property
+    def focused(self):
+        return self.widgets[self.focus]
+
+    def forward(self):
+        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("blur")
+        if self.focus == len(self.widgets) - 1:
+            self.focus = 0
+        else:
+            self.focus += 1
+        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
+
+    def back(self):
+        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("blur")
+        if self.focus == 0:
+            self.focus = len(self.widgets) - 1
+        else:
+            self.focus -= 1
+        getattr(self.widgets[self.focus], "dispatch", lambda e: None)("focus")
+
+
+class FocusGroup:
+    dispatch = Dispatch()
+
+    def __init__(self, *widgets):
+        self.fm = FocusManager(*widgets)
+
+    def __rich__(self):
+        return Group(*self.fm.widgets)
+
+    @property
+    def result(self):
+        return [w.result for w in self.fm.widgets]
+
+    @dispatch.on("tab")
+    def focus_advance(self):
+        self.fm.forward()
+
+    @dispatch.on("shift+tab")
+    def focus_back(self):
+        self.fm.back()
+
+    @dispatch.default
+    def passthrough(self, event):
+        self.fm.focused.dispatch(event)
+
+
+class Focusable:
+    def __init__(self, content, focus_style: Style = Style.parse("bold yellow")):
+        self.content = content
+        self.focus_style = focus_style
+
+    run = Run()
+    dispatch = Dispatch()
+
+    @dispatch.on("focus")
+    def on_focus(self):
+        self.focus = True
+
+    @dispatch.on("blur")
+    def on_blur(self):
+        self.focus = False
+
+    @dispatch.default
+    def passthrough(self, event):
+        return self.content.dispatch(event)
+
+    @property
+    def result(self):
+        return self.content.result
+
+    def __rich__(self):
+        return Styled(self.content, self.focus_style) if self.focus else self.content
+
+
+class FocusableFramed:
+    run = Run()
+
+    def __init__(self, content):
+        self.content = content
+        self.focus = False
+
+    dispatch = Dispatch()
+
+    @dispatch.on("focus")
+    def on_focus(self):
+        self.focus = True
+
+    @dispatch.on("blur")
+    def on_blur(self):
+        self.focus = False
+
+    @dispatch.default
+    def default(self, event):
+        self.content.dispatch(event)
+
+    @property
+    def result(self):
+        return self.content.result
+
+    def __rich__(self):
+        focus = getattr(self, "focus", False)
+        return Panel.fit(self.content, border_style="green" if focus else "")
+
+
+# ---

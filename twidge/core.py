@@ -1,11 +1,11 @@
-from contextlib import contextmanager
 import string
-import os
 import sys
 import termios
-from inspect import signature
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Callable, Protocol, Any, BinaryIO, TypeAlias, runtime_checkable
+from functools import partial
+from inspect import signature
+from typing import BinaryIO, Callable, Protocol, Type, TypeAlias, runtime_checkable
 
 from rich.console import Console, RenderableType
 from rich.live import Live
@@ -94,32 +94,36 @@ def chbreak(
     IO sold separate. Unix specific."""
 
     try:
-        stdin = stdin or sys.stdin.fileno()
-        old = termios.tcgetattr(stdin)
+        fd = stdin if stdin is not None else sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
         mode = old.copy()
 
         # This section is a modified version of tty.setraw
         # Removing OPOST fixes issues with carriage returns.
         # Needs further investigation.
         mode[0] &= ~(
-            termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON
+            termios.BRKINT
+            | termios.ICRNL
+            | termios.INPCK
+            | termios.ISTRIP
+            | termios.IXON
         )
         mode[2] &= ~(termios.CSIZE | termios.PARENB)
         mode[2] |= termios.CS8
         mode[3] &= ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
         mode[6][termios.VMIN] = 1
         mode[6][termios.VTIME] = 0
-        termios.tcsetattr(stdin, termios.TCSAFLUSH, mode)
+        termios.tcsetattr(fd, termios.TCSAFLUSH, mode)
         # End of modified tty.setraw
 
         # Non-blocking io; disabled b/c tricky.
-        # os.set_blocking(stdin, False)
+        # os.set_blocking(fd, False)
         yield
     finally:
 
         # Resume blocking io, see above.
-        # os.set_blocking(stdin, True)
-        termios.tcsetattr(stdin, termios.TCSADRAIN, old)
+        # os.set_blocking(fd, True)
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 class EventBase:
@@ -132,11 +136,24 @@ class ResponseBase:
 
 Event: TypeAlias = EventBase | str | bytes
 Response: TypeAlias = ResponseBase | str | bytes | None
-SingleHandler: TypeAlias = Callable[[], Response | None]
-MultiHandler: TypeAlias = Callable[[Event], Response | None]
+
+
+@runtime_checkable
+class SingleHandler(Protocol):
+    def __call__(self) -> Response:
+        pass
+
+
+@runtime_checkable
+class MultiHandler(Protocol):
+    def __call__(self, event: Event) -> Response:
+        pass
+
+
 Handler: TypeAlias = SingleHandler | MultiHandler
 
 
+@runtime_checkable
 class Reader(Protocol):
     def __init__(self, io: BinaryIO):
         ...
@@ -145,10 +162,12 @@ class Reader(Protocol):
         ...
 
 
+@runtime_checkable
 class Dispatcher(Protocol):
     dispatch: MultiHandler
 
 
+@runtime_checkable
 class Runner(Protocol):
     def __init__(self, widget, *args, **kwargs):
         ...
@@ -168,9 +187,13 @@ class BytesReader:
         return self.io.read(6)
 
 
-class StrReader(BytesReader):
+class StrReader:
+    def __init__(self, io: BinaryIO):
+        self.io = io
+        self.reader = BytesReader(io)
+
     def read(self) -> str:
-        return keystr(super().read())
+        return keystr(self.reader.read())
 
 
 Widget: TypeAlias = Dispatcher | RenderableType  # no type intersection op
@@ -179,14 +202,13 @@ Widget: TypeAlias = Dispatcher | RenderableType  # no type intersection op
 @dataclass
 class WidgetRunner:
     widget: Widget
-    reader: Reader = StrReader
+    reader: Type[Reader] = StrReader
     stdin: int | None = None
-    console: Console | None = None
+    console: Console = field(default_factory=partial(Console, highlight=False))
     stopped: bool = False
 
     def start(self):
         self.stdin = self.stdin or sys.stdin.fileno()
-        self.console = self.console or Console()
         with Live(
             self.widget,
             console=self.console,
@@ -194,7 +216,9 @@ class WidgetRunner:
             auto_refresh=False,
         ) as live:
             with chbreak(stdin=self.stdin):
-                read = self.reader(open(self.stdin, "rb", buffering=0, closefd=False)).read
+                read = self.reader(
+                    open(self.stdin, "rb", buffering=0, closefd=False)
+                ).read
                 self.stopped = False
                 while not self.stopped:
                     self.widget.dispatch(read())
@@ -203,7 +227,10 @@ class WidgetRunner:
     def stop(self):
         self.stopped = True
 
-    __call__ = start
+    def __call__(self):
+        self.start()
+        if hasattr(self.widget, "result"):
+            return self.widget.result
 
 
 @dataclass
@@ -215,14 +242,16 @@ class WidgetDispatcher:
     def dispatch(self, event: Event) -> Response:
         fn = self.table.get(event, self.default)
         if fn is None:
-            raise ValueError(f"No handler for {event}")
+            raise ValueError(f"No handler for {event!r}")
         match len(signature(fn).parameters):
             case 0:
+                assert isinstance(fn, SingleHandler)
                 return fn()
             case 1:
+                assert isinstance(fn, MultiHandler)
                 return fn(event)
             case _:
-                raise TypeError(f"Handler should take one or zero arguments.")
+                raise TypeError("Handler should take one or zero arguments.")
 
     __call__ = dispatch
 
@@ -243,30 +272,59 @@ class RunBuilder:
         return obj.run
 
 
+@runtime_checkable
+class UnboundSingleHandler(Protocol):
+    __name__: str
+
+    def __call__(self, widget: Widget) -> Response:
+        pass
+
+
+@runtime_checkable
+class UnboundMultiHandler(Protocol):
+    __name__: str
+
+    def __call__(self, widget: Widget, event: Event) -> Response:
+        pass
+
+
+UnboundHandler: TypeAlias = UnboundSingleHandler | UnboundMultiHandler
+
+
 @dataclass
 class DispatchBuilder:
     handler_methods: dict[Event, str] = field(default_factory=dict)
     table: dict[Event, Handler] = field(default_factory=dict)
-    defaultfn: Handler | None = None
+    defaultfn: Handler | str | None = None
 
-    def on(self, *events: Event) -> Callable[[Handler], Handler]:
-        def decorate(fn: Handler) -> Handler:
+    def on(
+        self, *events: Event
+    ):  # (*Event) -> Callable[[UnboundHandler], UnboundHandler]
+        def decorate(fn: Callable):  # (UnboundHandler) -> UnboundHandler
             for e in events:
                 self.handler_methods[e] = fn.__name__
             return fn
 
         return decorate
 
-    def default(self, fn: Handler) -> Handler:
+    def default(self, fn: Callable):  # (UnboundHandler) -> UnboundHandler
         self.defaultfn = fn.__name__
         return fn
 
     def __get__(self, obj, obj_type=None):
         if obj is None:
             return self
-        table = self.table | {e: getattr(obj, m) for e, m in self.handler_methods.items()}
+        table = self.table | {
+            e: getattr(obj, m) for e, m in self.handler_methods.items()
+        }
         default = (
-            getattr(obj, self.defaultfn) if isinstance(self.defaultfn, str) else self.defaultfn
+            getattr(obj, self.defaultfn)
+            if isinstance(self.defaultfn, str)
+            else self.defaultfn
         )
         obj.dispatch = WidgetDispatcher(obj, table=table, default=default)
         return obj.dispatch
+
+
+Run: TypeAlias = RunBuilder
+Dispatch: TypeAlias = DispatchBuilder

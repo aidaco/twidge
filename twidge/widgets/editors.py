@@ -1,16 +1,17 @@
 import typing
+from functools import partial
 from math import ceil, floor
 
-from rich.console import Group
 from rich.markup import escape
-from rich.panel import Panel
+from rich.style import Style
+from rich.styled import Styled
 
-from twidge.core import Dispatcher, Runner
-from twidge.widgets.base import Wrapper, Close
+from twidge.core import Dispatch, Run
 
 
-class StringView:
-    dispatch = Dispatcher().autofocus()
+class EditString:
+    run = Run()
+    dispatch = Dispatch()
 
     def __init__(
         self,
@@ -24,6 +25,7 @@ class StringView:
         self.multiline = multiline
         self.overflow = overflow
 
+    @property
     def result(self) -> str:
         return "\n".join(self.lines)
 
@@ -55,7 +57,7 @@ class StringView:
 
         # Render cursor line
         yield (
-            f"[bold yellow]{escape(sstr)}[on cyan]{cstr}[/]{escape(estr)}[/]"
+            f"{escape(sstr)}[grey0 on grey100]{escape(cstr)}[/]{escape(estr)}"
             if self.focus
             else f"{escape(sstr)}{escape(cstr)}{escape(estr)}"
         )
@@ -80,6 +82,18 @@ class StringView:
             if self.cursor[0] < len(self.lines) - 1:
                 self.cursor[0] += 1
                 self.cursor[1] = 0
+
+    @dispatch.on("up")
+    def cursor_up(self):
+        if self.multiline and self.cursor[0] > 0:
+            self.cursor[0] -= 1
+            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
+
+    @dispatch.on("down")
+    def cursor_down(self):
+        if self.multiline and self.cursor[0] < len(self.lines) - 1:
+            self.cursor[0] += 1
+            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
 
     @dispatch.on("ctrl+right")
     def next_word(self):
@@ -106,55 +120,6 @@ class StringView:
     @dispatch.on("end")
     def cursor_end(self):
         self.cursor[1] = len(self.lines[self.cursor[0]])
-
-    @dispatch.on("up")
-    def cursor_up(self):
-        if self.multiline and self.cursor[0] > 0:
-            self.cursor[0] -= 1
-            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
-
-    @dispatch.on("down")
-    def cursor_down(self):
-        if self.multiline and self.cursor[0] < len(self.lines) - 1:
-            self.cursor[0] += 1
-            self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
-
-    @dispatch.default
-    def dropkeys(self, _):
-        ...
-
-
-def _fullview(content, center, width):
-    """Pass through a full view of the content without truncation. Wraps lines."""
-    return content[:center], content[center], content[center + 1 :]
-
-
-def _scrollview(content, center, width):
-    """Split a sequence content about the pivot index into
-    start, center, end with fixed total width. Pivot must be < len(content).
-    """
-    width = width - 1
-    # len of portion
-    lstart = len(content[:center])
-    lend = len(content[center + 1 :])
-
-    # offset from center, floor/ceil accounts for odd widths
-    ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
-    oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
-
-    # bounding index in seq
-    istart = max(0, center - ostart)
-    iend = min(center + 1 + oend, len(content))
-
-    # partition content
-    start = content[istart:center]
-    end = content[center + 1 : iend]
-    center = content[center]
-    return start, center, end
-
-
-class EditString(StringView):
-    dispatch = Dispatcher().autofocus()
 
     @dispatch.on("backspace")
     def backspace(self):
@@ -196,10 +161,19 @@ class EditString(StringView):
             self.cursor[0] += 1
             self.cursor[1] = 0
 
+    @dispatch.on("focus")
+    def on_focus(self):
+        self.focus = True
+
+    @dispatch.on("blur")
+    def on_blur(self):
+        self.focus = False
+
     @dispatch.default
     def insert(self, char: str):
         char = "\t" if char == "tab" else char
         char = " " if char == "space" else char
+        char = r"\\" if char == "\\" else char
 
         if len(char) > 1:
             return
@@ -212,8 +186,89 @@ class EditString(StringView):
         self.lines[self.cursor[0]] = line
 
 
-class WatchCursor(Wrapper):
-    """Display cursor position with an editor."""
+def _fullview(content, center, width):
+    """Pass through a full view of the content without truncation. Wraps lines."""
+    return content[:center], content[center], content[center + 1 :]
+
+
+def _scrollview(content, center, width):
+    """Split a sequence content about the pivot index into
+    start, center, end with fixed total width. Pivot must be < len(content).
+    """
+    width = width - 1
+    # len of portion
+    lstart = len(content[:center])
+    lend = len(content[center + 1 :])
+
+    # offset from center, floor/ceil accounts for odd widths
+    ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
+    oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
+
+    # bounding index in seq
+    istart = max(0, center - ostart)
+    iend = min(center + 1 + oend, len(content))
+
+    # partition content
+    start = content[istart:center]
+    end = content[center + 1 : iend]
+    center = content[center]
+    return start, center, end
+
+
+class ValidatedEditString:
+    def __init__(self, editor: EditString):
+        self.editor = editor
 
     def __rich__(self):
-        return Group(Panel.fit(f"Cursor: {self.content.cursor}"), self.content)
+        return (
+            self.editor
+            if self.validate(self.editor.text)
+            else Styled(self.editor, style=Style(color="red"))
+        )
+
+    def dispatch(self, event):
+        return self.editor.dispatch(event)
+
+    @property
+    def result(self):
+        if self.validate(self.editor.result):
+            return self.editor.result
+
+    def validate(self, text) -> bool:
+        raise TypeError("Subclasses should override validate.")
+
+
+class ParsedEditString:
+    def __init__(self, parser, editor=None):
+        self.parser = parser
+        self.editor = editor if editor is not None else EditString(multiline=False)
+        self.run = self.editor.run
+        self.dispatch = self.editor.dispatch
+
+    def __rich__(self):
+        try:
+            self.parser(self.editor.result)
+            return self.editor
+        except ValueError:
+            return Styled(self.editor, style=Style(color="red"))
+
+    @property
+    def result(self):
+        return self.parser(self.editor.result)
+
+
+def parse_numeric(text):
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return float(text)
+        except ValueError:
+            return complex(text)
+
+
+EditIntString = partial(ParsedEditString, parser=int)
+EditFloatString = partial(ParsedEditString, parser=float)
+EditComplexString = partial(ParsedEditString, parser=complex)
+EditNumericString = partial(ParsedEditString, parser=parse_numeric)
+EditEnumString = lambda enum_cls: ParsedEditString(parser=enum_cls)
