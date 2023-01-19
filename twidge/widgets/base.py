@@ -1,60 +1,49 @@
 import re
 import sys
 import typing
+from dataclasses import dataclass
 
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.style import Style
 from rich.styled import Styled
 from rich.table import Table
+from rich.text import Text
 
-from twidge.core import BytesReader, Dispatch, Event, Run, SingleHandler
-
-# --- Dispatch fragments
-
-
-def ignore(event):
-    pass
-
-
-class IgnoreDispatch(Dispatch):
-    """Dispatch that ignores events by default."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(defaultfn=ignore)
-
-
-# ---
-
+from twidge.core import BytesReader, DispatchBuilder, Event, RunBuilder, SingleHandler
 
 # --- Simple Widgets
 
 
 class Echo:
-    def __init__(self):
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
+
+    def __init__(self, stop_key: str = "ctrl+c"):
         self.history = ""
 
-    run = Run()
-    dispatch = Dispatch()
-
     @dispatch.on("ctrl+c")
-    def stop(self) -> None:
+    def stop(self):
         self.run.stop()
 
     @dispatch.default
-    def default(self, key: str):
+    def add(self, key: str):
         self.history += key
 
     def __rich__(self):
         return f"{self.history}"
 
+    @property
+    def result(self):
+        return self.history
+
 
 class EchoBytes:
+    run = RunBuilder(reader=BytesReader)
+    dispatch = DispatchBuilder()
+
     def __init__(self):
         self.history = b""
-
-    run = Run(reader=BytesReader)
-    dispatch = Dispatch()
 
     @dispatch.on(b"\x7f")
     def stop(self):
@@ -67,40 +56,41 @@ class EchoBytes:
     def __rich__(self):
         return f"{self.history}"
 
-
-class Toggle:
     @property
     def result(self):
-        return self.value
+        return self.history
 
-    def __init__(
-        self,
-        value: bool = True,
-        true: RenderableType = "True",
-        false: RenderableType = "False",
-    ):
-        self.value = value
-        self.true = true
-        self.false = false
 
-    run = Run()
-    dispatch = IgnoreDispatch()
+@dataclass
+class Toggle:
+    value: bool = True
+    true: RenderableType = "True"
+    false: RenderableType = "False"
+    run: typing.ClassVar = RunBuilder()
+    dispatch: typing.ClassVar = DispatchBuilder()
 
     @dispatch.on("space")
     def toggle(self):
         self.value = not self.value
 
+    @dispatch.default
+    def ignore(self, key):
+        pass
+
     def __rich__(self):
         return self.true if self.value else self.false
 
+    @property
+    def result(self):
+        return self.value
 
+
+@dataclass
 class Button:
-    def __init__(self, content: RenderableType, target: typing.Callable):
-        self.content = content
-        self.target = target
-
-    run = Run()
-    dispatch = IgnoreDispatch()
+    content: RenderableType
+    target: typing.Callable
+    run: typing.ClassVar = RunBuilder()
+    dispatch: typing.ClassVar = DispatchBuilder()
 
     @dispatch.on("enter")
     def trigger(self):
@@ -110,14 +100,18 @@ class Button:
         return self.content
 
 
-class Searcher:
-    run = Run()
-    dispatch = Dispatch()
+T = typing.TypeVar("T")
 
-    def __init__(self, options: list[str]):
+
+class Searcher:
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
+
+    def __init__(self, options: list[T], fmt: typing.Callable[[T], str] = str):
         self.query = ""
         self.full = list(options)
         self.last = self.full
+        self.fmt = fmt
 
     def reset(self):
         self.last = self.full
@@ -134,8 +128,8 @@ class Searcher:
         if len(self.last) == 0:
             content = "No matches."
         else:
-            content = Group(*self.last, fit=True)
-        return Group(f"[bold cyan]{self.query}[/]", content)
+            content = Group(*(self.fmt(e) for e in self.last), fit=True)
+        return Group(Text(self.query, style="grey0 on grey100"), content)
 
     @dispatch.on("ctrl+d")
     def clear(self):
@@ -160,13 +154,14 @@ class Indexer:
     """Retrieve items from a list by indices."""
 
     RE_NUMSEQ = re.compile(r"\W*(\d+)\W*")
-    run = Run()
-    dispatch = Dispatch()
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
 
-    def __init__(self, options: list[str]):
+    def __init__(self, options: list[T], fmt: typing.Callable[[T], str] = str):
         self.query = ""
         self.full = list(options)
         self.last = self.filter()
+        self.fmt = fmt
 
     def reset(self):
         self.last = []
@@ -182,10 +177,12 @@ class Indexer:
         table.add_column()
         for i, o in enumerate(self.full):
             if o in self.last:
-                table.add_row(f"[cyan]{i+1}[/]", f"[on green]{o}[/]")
+                table.add_row(
+                    Text(str(i + 1), style="cyan"), Text(self.fmt(o), style="on green")
+                )
             else:
-                table.add_row(f"[cyan]{i+1}[/]", f"{o}")
-        return Group(f"[bold yellow]{self.query}[/]", table)
+                table.add_row(Text(str(i + 1), style="cyan"), f"{o}")
+        return Group(Text(self.query, style="bold yellow"), table)
 
     def filter(self):
         try:
@@ -218,19 +215,20 @@ class Indexer:
 
 
 class Selector:
-    run = Run()
-    dispatch = Dispatch()
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
 
-    def __init__(self, options: list[str]):
+    def __init__(self, options: list[T], fmt: typing.Callable[[T], str] = str):
         self.options = list(options)
         self.selected = [False] * len(self.options)
         self.fm = FocusManager(*self.options)
+        self.fmt = fmt
 
     def __rich__(self):
         return Group(
             *(
                 Styled(
-                    opt,
+                    self.fmt(opt),
                     style=f'{"bold yellow" if self.fm.focus==i else ""}{" on blue" if sel else ""}',
                 )
                 for i, (opt, sel) in enumerate(zip(self.options, self.selected))
@@ -269,7 +267,7 @@ class KeyTrigger:
         self.handler = handler
         self.content = content
 
-    run = Run()
+    run = RunBuilder()
 
     def dispatch(self, event: Event):
         if event == self.trigger:
@@ -292,7 +290,7 @@ class SequenceTrigger:
         self.handler = handler
         self.content = content
 
-    run = Run()
+    run = RunBuilder()
 
     @property
     def result(self):
@@ -305,10 +303,16 @@ class SequenceTrigger:
         else:
             return self.content.dispatch(event)
 
+    def __rich__(self):
+        return self.content
+
 
 class Crashable(SequenceTrigger):
     def __init__(self, trigger: list[Event], content):
-        super().__init__(trigger, lambda: sys.exit(), content)
+        super().__init__(trigger, self.crash, content)
+
+    def crash(self):
+        raise KeyboardInterrupt
 
 
 class Closeable(KeyTrigger):
@@ -317,7 +321,7 @@ class Closeable(KeyTrigger):
 
 
 class Framed:
-    run = Run()
+    run = RunBuilder()
 
     def __init__(self, content):
         self.content = content
@@ -349,7 +353,7 @@ class Labelled:
         t = Table.grid(padding=(0, 1, 0, 0))
         t.add_column()
         t.add_column()
-        t.add_row(f"[bold cyan]{self.label}[/]", self.content)
+        t.add_row(Text(self.label, style="bold cyan"), self.content)
         return t
 
 
@@ -386,7 +390,7 @@ class FocusManager:
 
 
 class FocusGroup:
-    dispatch = Dispatch()
+    dispatch = DispatchBuilder()
 
     def __init__(self, *widgets):
         self.fm = FocusManager(*widgets)
@@ -412,12 +416,12 @@ class FocusGroup:
 
 
 class Focusable:
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
+
     def __init__(self, content, focus_style: Style = Style.parse("bold yellow")):
         self.content = content
         self.focus_style = focus_style
-
-    run = Run()
-    dispatch = Dispatch()
 
     @dispatch.on("focus")
     def on_focus(self):
@@ -440,13 +444,12 @@ class Focusable:
 
 
 class FocusableFramed:
-    run = Run()
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
 
     def __init__(self, content):
         self.content = content
         self.focus = False
-
-    dispatch = Dispatch()
 
     @dispatch.on("focus")
     def on_focus(self):

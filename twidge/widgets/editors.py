@@ -2,16 +2,16 @@ import typing
 from functools import partial
 from math import ceil, floor
 
-from rich.markup import escape
 from rich.style import Style
 from rich.styled import Styled
+from rich.text import Text
 
-from twidge.core import Dispatch, Run
+from twidge.core import DispatchBuilder, RunBuilder
 
 
 class EditString:
-    run = Run()
-    dispatch = Dispatch()
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
 
     def __init__(
         self,
@@ -53,17 +53,17 @@ class EditString:
                     sstr, cstr, estr = _fullview(cline, self.cursor[1], width)
 
         # Render lines before cursor, if any
-        yield from (escape(line[:width]) for line in slines)
+        yield from (line[:width] for line in slines)
 
         # Render cursor line
         yield (
-            f"{escape(sstr)}[grey0 on grey100]{escape(cstr)}[/]{escape(estr)}"
+            Text(sstr) + Text(cstr, style="grey0 on grey100") + Text(estr)
             if self.focus
-            else f"{escape(sstr)}{escape(cstr)}{escape(estr)}"
+            else Text(sstr) + Text(cstr) + Text(estr)
         )
 
         # Render lines after cursor, if any
-        yield from (escape(line[:width]) for line in elines)
+        yield from (line[:width] for line in elines)
 
     @dispatch.on("left")
     def cursor_left(self):
@@ -173,7 +173,6 @@ class EditString:
     def insert(self, char: str):
         char = "\t" if char == "tab" else char
         char = " " if char == "space" else char
-        char = r"\\" if char == "\\" else char
 
         if len(char) > 1:
             return
@@ -242,8 +241,12 @@ class ParsedEditString:
     def __init__(self, parser, editor=None):
         self.parser = parser
         self.editor = editor if editor is not None else EditString(multiline=False)
-        self.run = self.editor.run
-        self.dispatch = self.editor.dispatch
+
+    def run(self):
+        self.editor.run()
+
+    def dispatch(self, key):
+        self.editor.dispatch(key)
 
     def __rich__(self):
         try:

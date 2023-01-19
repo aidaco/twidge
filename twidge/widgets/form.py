@@ -1,30 +1,31 @@
 from rich.table import Table
+from rich.text import Text
 
-from twidge.core import Dispatch, Run
+from twidge.core import DispatchBuilder, RunBuilder
 from twidge.widgets.base import FocusManager
 from twidge.widgets.editors import EditString
 
 
 class Form:
-    run = Run()
-    dispatch = Dispatch()
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
 
-    def __init__(self, content: list[str]):
-        self.labels = content
+    def __init__(self, labels: list[str]):
+        self.labels = labels
         self.fm = FocusManager(
-            *(EditString(multiline=False, overflow="wrap") for k in content)
+            *(EditString(multiline=False, overflow="wrap") for _ in labels)
         )
 
     @property
     def result(self):
-        return [w.result for w in self.fm.widgets]
+        return {l: w.result for l, w in zip(self.labels, self.fm.widgets)}
 
     def __rich__(self):
         t = Table.grid(padding=(0, 1, 0, 0))
         t.add_column()
         t.add_column()
         for l, w in zip(self.labels, self.fm.widgets):
-            t.add_row(f"[bold cyan]{l}[/]", w)
+            t.add_row(Text(l, style="grey0 on grey100"), w)
         return t
 
     @dispatch.on("tab")
