@@ -16,32 +16,32 @@ cli = typer.Typer()
 
 @cli.command()
 def echo():
-    Closeable("ctrl+c", Framed(Echo())).run()
+    Closeable(Framed(Echo())).run()
 
 
 @cli.command()
 def edit(content: str = typer.Argument("")):
-    print(Closeable("ctrl+c", Framed(EditString(content))).run())
+    print(Closeable(Framed(EditString(content))).run())
 
 
 @cli.command()
 def form(labels: str):
-    print(Closeable("ctrl+c", Framed(Form(labels.split(",")))).run())
+    print(Closeable(Framed(Form(labels.split(",")))).run())
 
 
 @cli.command()
 def filter(options: str):
-    print(Closeable("ctrl+c", Framed(Searcher(options.split(",")))).run())
+    print(Closeable(Framed(Searcher(options.split(",")))).run())
 
 
 @cli.command()
 def index(options: str):
-    print(Closeable("ctrl+c", Framed(Indexer(options.split(",")))).run())
+    print(Closeable(Framed(Indexer(options.split(",")))).run())
 
 
 @cli.command()
 def select(options: str):
-    print(Closeable("ctrl+c", Framed(Selector(options.split(",")))).run())
+    print(Closeable(Framed(Selector(options.split(",")))).run())
 
 
 if __name__ == "__main__":

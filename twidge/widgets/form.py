@@ -25,7 +25,7 @@ class Form:
         t.add_column()
         t.add_column()
         for l, w in zip(self.labels, self.fm.widgets):
-            t.add_row(Text(l, style="grey0 on grey100"), w)
+            t.add_row(Text(l, style="bright_green"), w)
         return t
 
     @dispatch.on("tab")

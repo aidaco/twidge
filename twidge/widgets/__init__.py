@@ -1,7 +1,6 @@
 from twidge.widgets.base import (
     Button,
     Closeable,
-    Crashable,
     Echo,
     EchoBytes,
     FocusGroup,

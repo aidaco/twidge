@@ -57,7 +57,7 @@ class EditString:
 
         # Render cursor line
         yield (
-            Text(sstr) + Text(cstr, style="grey0 on grey100") + Text(estr)
+            Text(sstr) + Text(cstr, style="grey30 on grey70") + Text(estr)
             if self.focus
             else Text(sstr) + Text(cstr) + Text(estr)
         )

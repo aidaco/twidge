@@ -261,19 +261,28 @@ class Selector:
 # --- Wrapper widgets
 
 
-class KeyTrigger:
-    def __init__(self, trigger: Event, handler: SingleHandler, content):
-        self.trigger = trigger
-        self.handler = handler
+class Closeable:
+    def close(self):
+        self.run.stop()
+
+    def crash(self):
+        raise KeyboardInterrupt
+
+    def __init__(self, content, close: str = "ctrl+w", crash: list[str] = "ctrl+c"):
+        self.close_event = close
+        self.crash_event = crash
         self.content = content
 
     run = RunBuilder()
 
     def dispatch(self, event: Event):
-        if event == self.trigger:
-            self.handler()
-        else:
-            return self.content.dispatch(event)
+        match event:
+            case self.close_event:
+                self.close()
+            case self.crash_event:
+                self.crash()
+            case _:
+                self.content.dispatch(event)
 
     @property
     def result(self):
@@ -281,43 +290,6 @@ class KeyTrigger:
 
     def __rich__(self):
         return self.content
-
-
-class SequenceTrigger:
-    def __init__(self, trigger: list[Event], handler: SingleHandler, content):
-        self.trigger = trigger
-        self.events = [None] * len(trigger)
-        self.handler = handler
-        self.content = content
-
-    run = RunBuilder()
-
-    @property
-    def result(self):
-        return self.content.result
-
-    def dispatch(self, event):
-        self.events = self.events[1:] + [event]
-        if self.events == self.trigger:
-            return self.handler()
-        else:
-            return self.content.dispatch(event)
-
-    def __rich__(self):
-        return self.content
-
-
-class Crashable(SequenceTrigger):
-    def __init__(self, trigger: list[Event], content):
-        super().__init__(trigger, self.crash, content)
-
-    def crash(self):
-        raise KeyboardInterrupt
-
-
-class Closeable(KeyTrigger):
-    def __init__(self, trigger: Event, content):
-        super().__init__(trigger, self.run.stop, content)
 
 
 class Framed:
