@@ -10,7 +10,7 @@ from rich.styled import Styled
 from rich.table import Table
 from rich.text import Text
 
-from twidge.core import BytesReader, DispatchBuilder, Event, RunBuilder, SingleHandler
+from twidge.core import BytesReader, DispatchBuilder, Event, RunBuilder
 
 # --- Simple Widgets
 
@@ -266,9 +266,9 @@ class Closeable:
         self.run.stop()
 
     def crash(self):
-        raise KeyboardInterrupt
+        sys.exit(1)
 
-    def __init__(self, content, close: str = "ctrl+w", crash: list[str] = "ctrl+c"):
+    def __init__(self, content, close: str = "ctrl+w", crash: str = "ctrl+c"):
         self.close_event = close
         self.crash_event = crash
         self.content = content

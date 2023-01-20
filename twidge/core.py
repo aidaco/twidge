@@ -179,8 +179,8 @@ class RunBuilder:
 class DispatchBuilder:
     def __init__(
         self,
-        methods: dict[Event, str] = None,
-        table: dict[Event, Handler] = None,
+        methods: dict[Event, str] | None = None,
+        table: dict[Event, Handler] | None = None,
         defaultfn: Handler | str | None = None,
     ):
         self.methods = methods if methods is not None else {}
