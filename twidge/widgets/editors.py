@@ -1,12 +1,58 @@
+import itertools
 import typing
 from functools import partial
 from math import ceil, floor
 
+from rich.console import Group
+from rich.segment import Segments
 from rich.style import Style
 from rich.styled import Styled
 from rich.text import Text
 
 from twidge.core import DispatchBuilder, RunBuilder
+from twidge.widgets.base import FocusManager
+
+
+def _interleave(*it):
+    it = list(map(iter, it))
+    i = 0
+    l = len(it)
+    while True:
+        try:
+            yield next(it[i])
+            i = (i + 1) % l
+        except StopIteration:
+            break
+
+
+class EditTemplate:
+    run = RunBuilder()
+
+    def __init__(self, content):
+        self.parts = content.split("{}")
+        self.editors = [EditString() for _ in range(len(self.parts) - 1)]
+        self.fm = FocusManager(*self.editors)
+
+    @property
+    def result(self):
+        return "".join(_interleave(self.parts, (e.result for e in self.editors)))
+
+    def dispatch(self, event):
+        match event:
+            case "tab":
+                self.fm.forward()
+            case "shift+tab":
+                self.fm.back()
+            case _:
+                self.fm.focused.dispatch(event)
+
+    def __rich_console__(self, console, console_options):
+        yield from itertools.chain(
+            *(
+                list(console.render(o))[:-1]
+                for o in _interleave(self.parts, self.editors)
+            )
+        )
 
 
 class EditString:
