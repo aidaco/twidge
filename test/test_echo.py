@@ -1,7 +1,13 @@
-import subprocess
 import pytest
-from rich.console import Console
-from twidge.widgets.base import Echo, EchoBytes, Toggle, Button, Searcher, Selector, Indexer
+from twidge.widgets.base import (
+    Echo,
+    EchoBytes,
+    Toggle,
+    Button,
+    Searcher,
+    Selector,
+    Indexer,
+)
 from twidge.widgets.editors import EditString, EditFloatString
 
 
