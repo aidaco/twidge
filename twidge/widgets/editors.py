@@ -1,15 +1,12 @@
-import itertools
 import typing
-from functools import partial
+from functools import cached_property, partial
 from math import ceil, floor
 
-from rich.console import Group
-from rich.segment import Segments
 from rich.style import Style
 from rich.styled import Styled
 from rich.text import Text
 
-from twidge.core import DispatchBuilder, RunBuilder
+from twidge.core import DispatchBuilder, RenderableType, RunBuilder, WidgetType
 from twidge.widgets.base import FocusManager
 
 
@@ -25,17 +22,43 @@ def _interleave(*it):
             break
 
 
-class EditTemplate:
+def template_re():
+    bracketed = lambda s: f"{{{s}}}"
+    named_group = lambda n, s: f"(?P<{n}>{s})"
+    empty = ""
+    identifier = r"(?:[_a-z][_a-z0-9]*)"
+    nemp = named_group("empty", empty)
+    nvar = named_group("var", identifier)
+    nlookup = "@" + named_group("lookup", identifier)
+    return bracketed(f"(?:{nemp}|{nvar}|{nlookup})")
+
+
+def template(template: str):
+    parts = template.split("{}")
+    editors = [EditString() for _ in range(len(parts) - 1)]
+    return InlineGroup(list(_interleave(parts, editors)))
+
+
+class InlineGroup:
     run = RunBuilder()
 
-    def __init__(self, content):
-        self.parts = content.split("{}")
-        self.editors = [EditString() for _ in range(len(self.parts) - 1)]
-        self.fm = FocusManager(*self.editors)
+    def __init__(self, content: list[RenderableType | WidgetType]):
+        self.content = content
+        self.fm = FocusManager(*self.widgets)
+
+    def substitute(self, fn: typing.Callable[[WidgetType], typing.Any]):
+        yield from (fn(c) if isinstance(c, WidgetType) else c for c in self.content)
+
+    def filter(self, fn: typing.Callable[[RenderableType | WidgetType], bool]):
+        yield from (c for c in self.content if fn(c))
+
+    @cached_property
+    def widgets(self):
+        return list(set(self.filter(lambda e: isinstance(e, WidgetType))))
 
     @property
     def result(self):
-        return "".join(_interleave(self.parts, (e.result for e in self.editors)))
+        return "".join(self.substitute(lambda e: e.result))
 
     def dispatch(self, event):
         match event:
@@ -47,12 +70,123 @@ class EditTemplate:
                 self.fm.focused.dispatch(event)
 
     def __rich_console__(self, console, console_options):
-        yield from itertools.chain(
-            *(
-                list(console.render(o))[:-1]
-                for o in _interleave(self.parts, self.editors)
-            )
+        return self.content
+
+
+class InlineEditor:
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
+
+    def __init__(self, text: str = "", scroll: bool = True):
+        self.text = text
+        self.cursor = 0
+        self.focus = True
+        self.scroll = scroll
+
+    @property
+    def result(self) -> str:
+        return self.text
+
+    def __rich__(self):
+        return self
+
+    def __rich_console__(self, console, options):
+        width = options.max_width
+
+        if self.scroll:
+            if 0 <= self.cursor < len(self.text):
+                sstr, cstr, estr = _scrollview(self.text, self.cursor, width)
+            else:
+                sstr, cstr, estr = (
+                    self.text[max(0, self.cursor - (width - 1)) : self.cursor],
+                    " ",
+                    "",
+                )
+        else:
+            if 0 <= self.cursor < len(self.text):
+                sstr, cstr, estr = _fullview(self.text, self.cursor, width)
+            else:
+                sstr, cstr, estr = self.text, " ", ""
+
+        # Render cursor line
+        yield (
+            Text(sstr, end="")
+            + Text(cstr, style="blinking grey30 on grey70", end="")
+            + Text(estr, end="")
+            if self.focus
+            else Text(sstr, end="") + Text(cstr, end="") + Text(estr, end="")
         )
+
+    @dispatch.on("left")
+    def cursor_left(self):
+        if self.cursor != 0:
+            self.cursor -= 1
+
+    @dispatch.on("right")
+    def cursor_right(self):
+        if self.cursor < len(self.text):
+            self.cursor[1] += 1
+
+    @dispatch.on("ctrl+right")
+    def next_word(self):
+        next_space = self.text[self.cursor :].find(" ")
+        if next_space == -1:
+            self.cursor = len(self.text)
+        else:
+            self.cursor = self.cursor + next_space + 1
+
+    @dispatch.on("ctrl+left")
+    def prev_word(self):
+        prev_space = self.text[max(0, self.cursor - 2) :: -1].find(" ")
+        if prev_space < 0:
+            self.cursor = 0
+        else:
+            self.cursor = self.cursor - prev_space - 1
+
+    @dispatch.on("home")
+    def cursor_home(self):
+        self.cursor = 0
+
+    @dispatch.on("end")
+    def cursor_end(self):
+        self.cursor = len(self.text)
+
+    @dispatch.on("backspace")
+    def backspace(self):
+        if self.cursor != 0:
+            self.text = self.text[: self.cursor - 1] + self.text[self.cursor :]
+            self.cursor -= 1
+
+    @dispatch.on("ctrl+h")
+    def delete_word(self):
+        prev_space = self.text[: self.cursor - 1][::-1].find(" ")
+        if prev_space == -1:
+            n = 0
+        else:
+            n = self.cursor - prev_space - 2
+        self.text = self.text[:n] + self.text[self.cursor :]
+        self.cursor = n
+
+    @dispatch.on("focus")
+    def on_focus(self):
+        self.focus = True
+
+    @dispatch.on("blur")
+    def on_blur(self):
+        self.focus = False
+
+    @dispatch.default
+    def insert(self, char: str):
+        char = "\t" if char == "tab" else char
+        char = " " if char == "space" else char
+
+        if len(char) > 1:
+            return
+        if self.cursor == len(self.text):
+            self.text += char
+        else:
+            self.text = self.text[: self.cursor] + char + self.text[self.cursor :]
+        self.cursor += len(char)
 
 
 class EditString:

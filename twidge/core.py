@@ -1,26 +1,23 @@
 import sys
 from inspect import signature
-from typing import (
-    BinaryIO,
-    Callable,
-    Iterable,
-    Protocol,
-    Type,
-    TypeAlias,
-    runtime_checkable,
-)
+from typing import BinaryIO, Callable, Protocol, Type, TypeAlias, runtime_checkable
 
-from rich.console import Console, ConsoleOptions, RenderableType
+from rich.console import Console
 from rich.live import Live
 
 from twidge.terminal import chbreak, keystr
 
 
-class EventBase:
+class Event:
     ...
 
 
-Event: TypeAlias = EventBase | str | bytes
+class StrKey(Event, str):
+    pass
+
+
+class BytesKey(Event, bytes):
+    pass
 
 
 @runtime_checkable
@@ -35,29 +32,26 @@ class MultiHandler(Protocol):
         pass
 
 
-class RichWidget(Protocol):
-    def __rich__(self) -> RenderableType:
-        ...
+class WidgetMeta(type):
+    def __subclasscheck__(cls, subcls):
+        renderable = hasattr(subcls, "__rich__") or hasattr(subcls, "__rich_console__")
+        interactive = hasattr(subcls, "dispatch") and hasattr(subcls, "result")
+        return renderable and interactive
 
-    def dispatch(self, event: Event) -> None:
-        ...
-
-
-class ConsoleWidget(Protocol):
-    def __rich_console__(
-        self, console: Console, console_options: ConsoleOptions
-    ) -> Iterable[RenderableType]:
-        ...
-
-    def dispatch(self, event: Event) -> None:
-        ...
+    def __instancecheck__(cls, obj):
+        renderable = hasattr(obj, "__rich__") or hasattr(obj, "__rich_console__")
+        interactive = hasattr(obj, "dispatch") and hasattr(obj, "result")
+        return renderable and interactive
 
 
-Handler: TypeAlias = SingleHandler | MultiHandler
-Widget: TypeAlias = RichWidget | ConsoleWidget
+class WidgetType(metaclass=WidgetMeta):
+    pass
 
 
-class Reader(Protocol):
+HandlerType: TypeAlias = SingleHandler | MultiHandler
+
+
+class ReaderType(Protocol):
     def __init__(self, io: BinaryIO):
         ...
 
@@ -69,8 +63,8 @@ class BytesReader:
     def __init__(self, io: BinaryIO):
         self.io = io
 
-    def read(self) -> bytes:
-        return self.io.read(6)
+    def read(self) -> BytesKey:
+        return BytesKey(self.io.read(6))
 
 
 class StrReader:
@@ -78,16 +72,16 @@ class StrReader:
         self.io = io
         self.reader = BytesReader(io)
 
-    def read(self) -> str:
-        return keystr(self.reader.read())
+    def read(self) -> StrKey:
+        return StrKey(keystr(self.reader.read()))
 
 
 class Runner:
     def __init__(
         self,
-        widget: Widget,
+        widget: WidgetType,
         stdin: int | None = None,
-        reader: Type[Reader] = StrReader,
+        reader: Type[ReaderType] = StrReader,
         console: Console | None = None,
     ):
         self.widget = widget
@@ -126,8 +120,8 @@ class Runner:
 class Dispatcher:
     def __init__(
         self,
-        table: dict[Event, Handler] | None = None,
-        default: Handler | None = None,
+        table: dict[Event, HandlerType] | None = None,
+        default: HandlerType | None = None,
     ):
         self.table = table if table is not None else {}
         self.default = default
@@ -138,14 +132,16 @@ class Dispatcher:
             raise ValueError(f"No handler for {event!r}")
         match len(signature(fn).parameters):
             case 0:
-                fn()
+                fn()  # type: ignore
             case 1:
-                fn(event)
+                fn(event)  # type: ignore
             case _:
                 raise TypeError("Handler should take one or zero arguments.")
 
     def update(
-        self, table: dict[Event, Handler] | None = None, default: Handler | None = None
+        self,
+        table: dict[Event, HandlerType] | None = None,
+        default: HandlerType | None = None,
     ):
         if table:
             self.table.update(table)
@@ -159,14 +155,14 @@ class RunBuilder:
     def __init__(
         self,
         stdin: int | None = None,
-        reader: Type[Reader] = StrReader,
+        reader: Type = StrReader,
         console: Console | None = None,
     ):
         self.stdin = stdin
         self.reader = reader
         self.console = console
 
-    def build(self, widget):
+    def build(self, widget: WidgetType):
         return Runner(widget, self.stdin, self.reader, self.console)
 
     def __get__(self, obj, obj_type=None):
@@ -180,17 +176,17 @@ class DispatchBuilder:
     def __init__(
         self,
         methods: dict[Event, str] | None = None,
-        table: dict[Event, Handler] | None = None,
-        defaultfn: Handler | str | None = None,
+        table: dict[Event, HandlerType] | None = None,
+        defaultfn: HandlerType | str | None = None,
     ):
         self.methods = methods if methods is not None else {}
         self.table = table if table is not None else {}
-        self.defaultfn = defaultfn if defaultfn is not None else {}
+        self.defaultfn = defaultfn
 
-    def on(self, *events: Event):
+    def on(self, *keys: str):
         def decorate(fn: Callable):
-            for e in events:
-                self.methods[e] = fn.__name__
+            for k in map(StrKey, keys):
+                self.methods[k] = fn.__name__
             return fn
 
         return decorate
@@ -199,7 +195,7 @@ class DispatchBuilder:
         self.defaultfn = fn.__name__
         return fn
 
-    def build(self, widget):
+    def build(self, widget: WidgetType):
         table = self.table | {e: getattr(widget, m) for e, m in self.methods.items()}
         default = (
             getattr(widget, self.defaultfn)
