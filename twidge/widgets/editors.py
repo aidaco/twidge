@@ -1,12 +1,15 @@
+import re
 import typing
+import itertools
 from functools import cached_property, partial
 from math import ceil, floor
 
 from rich.style import Style
 from rich.styled import Styled
 from rich.text import Text
+from rich.console import RenderableType
 
-from twidge.core import DispatchBuilder, RenderableType, RunBuilder, WidgetType
+from twidge.core import DispatchBuilder, RunBuilder, WidgetType
 from twidge.widgets.base import FocusManager
 
 
@@ -21,17 +24,31 @@ def _interleave(*it):
         except StopIteration:
             break
 
+class Placeholder(typing.NamedTuple):
+    tag: str | int | None
+    obj: str | None
+    start: int
+    stop: int
 
-def template_re():
-    bracketed = lambda s: f"{{{s}}}"
-    named_group = lambda n, s: f"(?P<{n}>{s})"
-    empty = ""
-    identifier = r"(?:[_a-z][_a-z0-9]*)"
-    nemp = named_group("empty", empty)
-    nvar = named_group("var", identifier)
-    nlookup = "@" + named_group("lookup", identifier)
-    return bracketed(f"(?:{nemp}|{nvar}|{nlookup})")
 
+class TemplateParser:
+    IDENTIFIER_RE = re.compile(r"^[^\d\W]\w*$", re.UNICODE)
+    PLACEHOLDER_RE = re.compile('(?<!{)(?:{{2})*({([^{}]*)})(?:}{2})*(?!})')
+    WIDGET_SPEC_RE = re.compile(r"^(?P<tag>[^\d\W]\w*)?(?::(?P<object>.*))?$")
+    def __init__(self, text: str):
+        self.text = text
+
+    def parts(self):
+        last = 0
+        for mplace in self.PLACEHOLDER_RE.finditer(self.text):
+            i,f = mplace.span(1)
+            yield self.text[last:i]
+
+            mwidget = self.WIDGET_SPEC_RE.match(mplace.group(2))
+            yield Placeholder(mwidget.group('tag'), mwidget.group('object'), i, f)
+            last = f
+        yield self.text[last:]
+    
 
 def template(template: str):
     parts = template.split("{}")
