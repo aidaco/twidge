@@ -179,9 +179,9 @@ class RunBuilder:
 class DispatchBuilder:
     def __init__(
         self,
-        methods: dict[Event, str] | None = None,
+        methods: dict[Event, Handler] | None = None,
         table: dict[Event, Handler] | None = None,
-        defaultfn: Handler | str | None = None,
+        defaultfn: Handler | None = None,
     ):
         self.methods = methods if methods is not None else {}
         self.table = table if table is not None else {}
@@ -190,20 +190,20 @@ class DispatchBuilder:
     def on(self, *events: Event):
         def decorate(fn: Callable):
             for e in events:
-                self.methods[e] = fn.__name__
+                self.methods[e] = fn
             return fn
 
         return decorate
 
     def default(self, fn: Callable):
-        self.defaultfn = fn.__name__
+        self.defaultfn = fn
         return fn
 
     def build(self, widget):
-        table = self.table | {e: getattr(widget, m) for e, m in self.methods.items()}
+        table = self.table | {e: m.__get__(widget, widget.__class__) for e, m in self.methods.items()}
         default = (
-            getattr(widget, self.defaultfn)
-            if isinstance(self.defaultfn, str)
+            self.defaultfn.__get__(widget, widget.__class__)
+            if callable(self.defaultfn)
             else self.defaultfn
         )
         return Dispatcher(table=table, default=default)
