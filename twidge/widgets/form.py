@@ -2,8 +2,8 @@ from rich.table import Table
 from rich.text import Text
 
 from twidge.core import DispatchBuilder, RunBuilder
-from twidge.widgets.base import FocusManager
 from twidge.widgets.editors import EditString
+from twidge.widgets.wrappers import FocusManager
 
 
 class Form:
@@ -39,3 +39,6 @@ class Form:
     @dispatch.default
     def passthrough(self, event):
         self.fm.focused.dispatch(event)
+
+
+__all__ = ["Form"]

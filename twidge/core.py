@@ -9,14 +9,22 @@ from twidge.terminal import chbreak, keystr
 
 
 class Event:
-    ...
-
-
-class StrKey(Event, str):
     pass
 
 
-class BytesKey(Event, bytes):
+class StrEvent(Event, str):
+    pass
+
+
+class BytesEvent(Event, bytes):
+    pass
+
+
+class StrKey(StrEvent):
+    pass
+
+
+class BytesKey(BytesEvent):
     pass
 
 
@@ -183,9 +191,16 @@ class DispatchBuilder:
         self.table = table if table is not None else {}
         self.defaultfn = defaultfn
 
-    def on(self, *keys: str):
+    def on(self, *keys: str | bytes | Event):
         def decorate(fn: Callable):
-            for k in map(StrKey, keys):
+            for k in keys:
+                match k:
+                    case str():
+                        k = StrKey(k)
+                    case bytes():
+                        k = BytesKey(k)
+                    case _:
+                        k = k
                 self.methods[k] = fn.__name__
             return fn
 
