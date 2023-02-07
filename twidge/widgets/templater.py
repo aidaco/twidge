@@ -3,6 +3,7 @@ from functools import cached_property
 from typing import Any, Callable
 
 from rich.console import RenderableType
+from rich.measure import Measurement
 from rich.text import Text
 
 from twidge.core import RunBuilder, WidgetType
@@ -16,14 +17,20 @@ FieldPattern = re.compile("(?<!{)(?:{{2})*({" + Spec + "})(?:}{2})*(?!})")
 
 
 def _parse_literal(source: str | None) -> WidgetType:
+    """Uses python's eval to parse str literal or tuple of str literal."""
     if source is None:
         return InlineEditor()  # type: ignore
     try:
-        return eval(
-            source, {"__builtins__": {"str": InlineEditor, "opt": InlineCycler}}
-        )
+        obj = eval(source, {"__builtins__": {}})
     except Exception:
         raise ValueError(f'Unable to parse "{source}".')
+    match obj:
+        case str() as text:
+            return InlineEditor(text)  # type: ignore
+        case tuple() as options:
+            return InlineCycler(*options)  # type: ignore
+        case _:
+            raise ValueError(f'Unexpected object "{obj}"')
 
 
 def _iterparts(
@@ -111,8 +118,12 @@ class EditTemplate:
             case _:
                 self.fm.focused.dispatch(event)
 
-    def __rich_console__(self, console, console_options):
+    def __rich_console__(self, console, options):
         return [Text(s, end="") if isinstance(s, str) else s for s in self.content]
+
+    def __rich_measure__(self, console, options):
+        width = max(len(l) + 1 for l in self.result.substituted.splitlines())
+        return Measurement(width, width)
 
 
 __all__ = ["EditTemplate"]

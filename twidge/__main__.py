@@ -34,8 +34,15 @@ def edit(content: str = typer.Argument("")):
 
 
 @cli.command()
-def template(content: str = typer.Argument(""), path: Path = typer.Option(None)):
-    print(Close(Framed(EditTemplate(content or path.read_text()))).run())
+def template(
+    content: str = typer.Argument(""),
+    path: Path = typer.Option(None),
+    escape: bool = False,
+):
+    content = content or path.read_text()
+    if escape:
+        content = content.encode("utf-8").decode("unicode_escape")
+    print(Close(Framed(EditTemplate(content))).run())
 
 
 @cli.command()
