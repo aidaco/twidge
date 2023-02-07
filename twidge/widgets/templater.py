@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from rich.console import RenderableType
 from rich.measure import Measurement
+from rich.segment import Segment
 from rich.text import Text
 
 from twidge.core import RunBuilder, WidgetType
@@ -122,7 +123,10 @@ class EditTemplate:
         return [Text(s, end="") if isinstance(s, str) else s for s in self.content]
 
     def __rich_measure__(self, console, options):
-        width = max(len(l) + 1 for l in self.result.substituted.splitlines())
+        width = max(
+            Segment.get_line_length(l)
+            for l in Segment.split_lines(console.render(self))
+        )
         return Measurement(width, width)
 
 
