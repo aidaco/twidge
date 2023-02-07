@@ -36,20 +36,51 @@ def _iterparts(
         i, f = m.span(1)
         yield text[last:i]
 
-        # TODO: Replace the uncommented line when better tag supprt.
-        # yield (m.group("tag"), parser(m.group("literal")))
-        yield parser(m.group("literal"))
+        yield (m.group("tag"), parser(m.group("literal")))
 
         last = f
     if last < len(text):
         yield text[last:]
 
 
+class TemplateResult:
+    def __init__(self, editor):
+        self.editor = editor
+
+    @property
+    def substituted(self):
+        return "".join(self.editor.substitute(lambda e: e.result))
+
+    @property
+    def tagged(self):
+        return {t: w.result for t, w in self.editor.tagged.items()}
+
+    @property
+    def auto(self):
+        return [w.result for w in self.editor.auto]
+
+    def __str__(self):
+        return self.substituted
+
+
 class EditTemplate:
     run = RunBuilder()
 
     def __init__(self, source):
-        self.content = list(_iterparts(source))
+        self.tagged = {}
+        self.auto = []
+        self.content = []
+        for e in _iterparts(source):
+            if isinstance(e, tuple):
+                tag, e = e
+                if tag is not None:
+                    if tag in self.tagged:
+                        e = self.tagged[tag]
+                    else:
+                        self.tagged[tag] = e
+                else:
+                    self.auto.append(e)
+            self.content.append(e)
         self.fm = FocusManager(*self.widgets)
 
     def substitute(self, fn: Callable[[WidgetType], Any]):
@@ -69,7 +100,7 @@ class EditTemplate:
 
     @property
     def result(self):
-        return "".join(self.substitute(lambda e: e.result))
+        return TemplateResult(self)
 
     def dispatch(self, event):
         match event:

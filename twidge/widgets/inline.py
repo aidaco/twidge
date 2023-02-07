@@ -38,9 +38,11 @@ class InlineEditor:
                 sstr, cstr, estr = self.text, " ", ""
 
         yield (
-            Text(sstr, style="bright_yellow", end="")
-            + Text(cstr, style="grey30 on grey70", end="")
-            + Text(estr, style="bright_yellow", end="")
+            Text(sstr, style=Style(color="bright_yellow", bold=True), end="")
+            + Text(
+                cstr, style=Style(color="grey30", bgcolor="grey70", bold=True), end=""
+            )
+            + Text(estr, style=Style(color="bright_yellow", bold=True), end="")
             if self.focus
             else Text(sstr, end="") + Text(cstr, end="") + Text(estr, end="")
         )
