@@ -84,9 +84,9 @@ class Framed:
 class Labelled:
     def __init__(
         self,
+        label: str,
         content: ContentType,
         *,
-        label: str,
         style: str | Style = Style.parse("bold cyan"),
     ):
         self.content = content
