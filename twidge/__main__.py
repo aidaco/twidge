@@ -20,12 +20,12 @@ cli = typer.Typer()
 
 @cli.command()
 def echo():
-    Close(Framed(Echo())).run()
+    Echo().run()
 
 
 @cli.command()
 def echobytes():
-    Close(Framed(EchoBytes())).run()
+    EchoBytes().run()
 
 
 @cli.command()

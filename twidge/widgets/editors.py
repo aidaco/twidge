@@ -274,6 +274,7 @@ EditIntString = partial(ParsedEditString, parser=int)
 EditFloatString = partial(ParsedEditString, parser=float)
 EditComplexString = partial(ParsedEditString, parser=complex)
 EditNumericString = partial(ParsedEditString, parser=parse_numeric)
-EditEnumString = lambda enum_cls: ParsedEditString(parser=enum_cls)
+def EditEnumString(enum_cls):
+    return ParsedEditString(parser=enum_cls)
 
 __all__ = ["EditString"]

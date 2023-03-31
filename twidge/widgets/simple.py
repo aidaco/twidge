@@ -1,4 +1,5 @@
 import typing
+from codecs import encode
 from dataclasses import dataclass
 
 from rich.console import Group, RenderableType
@@ -40,18 +41,19 @@ class EchoBytes:
     dispatch = DispatchBuilder()
 
     def __init__(self):
-        self.history = b""
+        self.history = []
 
-    @dispatch.on(b"\x7f")
+    @dispatch.on(b"\x03")
     def stop(self):
         self.run.stop()
 
     @dispatch.default
-    def default(self, key: str):
-        self.history += key
+    def default(self, key: bytes):
+        self.history.append(key)
 
     def __rich__(self):
-        return f"{self.history}"
+        history = (rf"\x{encode(b, 'hex').decode()}" for b in self.history)
+        return f"{' '.join(history)}"
 
     @property
     def result(self):
@@ -133,13 +135,8 @@ class Cycler:
         pass
 
     def __rich__(self):
-        create = (
-            lambda i, o: Text(
-                self.key(o), style=self.focus_style if self.focus else self.blur_style
-            )
-            if i == 0
-            else Text(self.key(o))
-        )
+        def create(i, o):
+            return Text(self.key(o), style=self.focus_style if self.focus else self.blur_style) if i == 0 else Text(self.key(o))
         return Group(
             *(
                 create(i, o)

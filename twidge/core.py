@@ -171,7 +171,9 @@ class RunBuilder:
         self.console = console
 
     def build(self, widget: WidgetType):
-        return Runner(widget, self.stdin, self.reader, self.console)
+        return Runner(
+            widget, stdin=self.stdin, reader=self.reader, console=self.console
+        )
 
     def __get__(self, obj, obj_type=None):
         if obj is None:

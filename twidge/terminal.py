@@ -113,7 +113,6 @@ def chbreak(
         # os.set_blocking(fd, False)
         yield
     finally:
-
         # Resume blocking io, see above.
         # os.set_blocking(fd, True)
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
