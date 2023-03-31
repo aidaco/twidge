@@ -1,14 +1,15 @@
 import pytest
+
 from twidge.widgets.base import (
+    Button,
     Echo,
     EchoBytes,
-    Toggle,
-    Button,
+    Indexer,
     Searcher,
     Selector,
-    Indexer,
+    Toggle,
 )
-from twidge.widgets.editors import EditString, EditFloatString
+from twidge.widgets.editors import EditFloatString, EditString
 
 
 def test_echo():

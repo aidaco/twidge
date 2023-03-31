@@ -133,13 +133,8 @@ class Cycler:
         pass
 
     def __rich__(self):
-        create = (
-            lambda i, o: Text(
-                self.key(o), style=self.focus_style if self.focus else self.blur_style
-            )
-            if i == 0
-            else Text(self.key(o))
-        )
+        def create(i, o):
+            return Text(self.key(o), style=self.focus_style if self.focus else self.blur_style) if i == 0 else Text(self.key(o))
         return Group(
             *(
                 create(i, o)
