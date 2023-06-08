@@ -172,10 +172,9 @@ class EditString:
     def insert(self, char: str):
         char = "\t" if char == "tab" else char
         char = " " if char == "space" else char
-
-        if len(char) > 1:
-            return
         line = self.lines[self.cursor[0]]
+        # TODO: support multiline paste
+        # Split on \n
         if line == "":
             line = char
         else:
@@ -273,7 +272,10 @@ EditIntString = partial(ParsedEditString, parser=int)
 EditFloatString = partial(ParsedEditString, parser=float)
 EditComplexString = partial(ParsedEditString, parser=complex)
 EditNumericString = partial(ParsedEditString, parser=parse_numeric)
+
+
 def EditEnumString(enum_cls):
     return ParsedEditString(parser=enum_cls)
+
 
 __all__ = ["EditString"]
