@@ -27,6 +27,12 @@ class StrKey(StrEvent):
 class BytesKey(BytesEvent):
     pass
 
+def _as_event(o):
+    match o:
+        case str():
+            return StrKey(o)
+        case bytes():
+            return BytesKey(o)
 
 @runtime_checkable
 class SingleHandler(Protocol):
@@ -185,38 +191,32 @@ class RunBuilder:
 class DispatchBuilder:
     def __init__(
         self,
-        methods: dict[Event, str] | None = None,
-        table: dict[Event, HandlerType] | None = None,
-        defaultfn: HandlerType | str | None = None,
+        methods: dict[Event, Callable] | None = None,
+        table: dict[Event, Callable] | None = None,
+        defaultfn: Callable | None = None,
     ):
         self.methods = methods if methods is not None else {}
         self.table = table if table is not None else {}
         self.defaultfn = defaultfn
 
     def on(self, *keys: str | bytes | Event):
+        events = [_as_event(key) for key in keys]
         def decorate(fn: Callable):
-            for k in keys:
-                match k:
-                    case str():
-                        k = StrKey(k)
-                    case bytes():
-                        k = BytesKey(k)
-                    case _:
-                        k = k
-                self.methods[k] = fn.__name__
-            return fn
+           for e in events:
+                self.methods[e] = fn
+           return fn
 
         return decorate
 
     def default(self, fn: Callable):
-        self.defaultfn = fn.__name__
+        self.defaultfn = fn
         return fn
 
     def build(self, widget: WidgetType):
-        table = self.table | {e: getattr(widget, m) for e, m in self.methods.items()}
+        table = self.table | {e: m.__get__(widget, widget.__class__) for e, m in self.methods.items()}
         default = (
-            getattr(widget, self.defaultfn)
-            if isinstance(self.defaultfn, str)
+            self.defaultfn.__get__(widget, widget.__class__)
+            if callable(self.defaultfn)
             else self.defaultfn
         )
         return Dispatcher(table=table, default=default)

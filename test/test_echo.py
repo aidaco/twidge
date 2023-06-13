@@ -1,6 +1,6 @@
 import pytest
 
-from twidge.widgets.base import (
+from twidge.widgets import (
     Button,
     Echo,
     EchoBytes,
