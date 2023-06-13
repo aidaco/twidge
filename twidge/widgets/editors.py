@@ -1,3 +1,4 @@
+import re
 import typing
 from functools import partial
 from math import ceil, floor
@@ -98,20 +99,18 @@ class EditString:
     @dispatch.on("ctrl+right")
     def next_word(self):
         line = self.lines[self.cursor[0]]
-        next_space = line[self.cursor[1] :].find(" ")
-        if next_space == -1:
-            self.cursor[1] = len(line)
-        else:
-            self.cursor[1] = self.cursor[1] + next_space + 1
+        sec = line[self.cursor[1] + 1:]
+        m = re.search(r"\W|$", sec)
+        next_non_word = m.end()
+        self.cursor[1] = self.cursor[1] + next_non_word + 1
 
     @dispatch.on("ctrl+left")
     def prev_word(self):
         line = self.lines[self.cursor[0]]
-        prev_space = line[max(0, self.cursor[1] - 2) :: -1].find(" ")
-        if prev_space < 0:
-            self.cursor[1] = 0
-        else:
-            self.cursor[1] = self.cursor[1] - prev_space - 1
+        sec = line[:self.cursor[1]][:: -1]
+        m = re.search(r"\W\w|$", sec)
+        prev_non_word = m.end()
+        self.cursor[1] = self.cursor[1] - prev_non_word
 
     @dispatch.on("home")
     def cursor_home(self):
@@ -141,16 +140,17 @@ class EditString:
 
     @dispatch.on("ctrl+h")
     def delete_word(self):
-        prev_space = self.lines[self.cursor[0]][: self.cursor[1] - 1][::-1].find(" ")
-        if prev_space == -1:
-            n = 0
-        else:
-            n = self.cursor[1] - prev_space - 2
+        line = self.lines[self.cursor[0]]
+        sec = line[:self.cursor[1]][:: -1]
+        m = re.search(r"(?>.)\b|$", sec)
+        print(sec, self.cursor, m)
+        prev_non_word = m.end()
+        n = self.cursor[1] - prev_non_word
         self.lines[self.cursor[0]] = (
-            self.lines[self.cursor[0]][:n]
-            + self.lines[self.cursor[0]][self.cursor[1] :]
+            self.lines[self.cursor[0]][:n] + self.lines[self.cursor[0]][self.cursor[1] :]
         )
         self.cursor[1] = n
+
 
     @dispatch.on("enter")
     def newline(self):
