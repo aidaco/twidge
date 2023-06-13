@@ -27,12 +27,14 @@ class StrKey(StrEvent):
 class BytesKey(BytesEvent):
     pass
 
+
 def _as_event(o):
     match o:
         case str():
             return StrKey(o)
         case bytes():
             return BytesKey(o)
+
 
 @runtime_checkable
 class SingleHandler(Protocol):
@@ -201,10 +203,11 @@ class DispatchBuilder:
 
     def on(self, *keys: str | bytes | Event):
         events = [_as_event(key) for key in keys]
+
         def decorate(fn: Callable):
-           for e in events:
+            for e in events:
                 self.methods[e] = fn
-           return fn
+            return fn
 
         return decorate
 
@@ -213,7 +216,9 @@ class DispatchBuilder:
         return fn
 
     def build(self, widget: WidgetType):
-        table = self.table | {e: m.__get__(widget, widget.__class__) for e, m in self.methods.items()}
+        table = self.table | {
+            e: m.__get__(widget, widget.__class__) for e, m in self.methods.items()
+        }
         default = (
             self.defaultfn.__get__(widget, widget.__class__)
             if callable(self.defaultfn)

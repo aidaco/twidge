@@ -99,7 +99,7 @@ class EditString:
     @dispatch.on("ctrl+right")
     def next_word(self):
         line = self.lines[self.cursor[0]]
-        sec = line[self.cursor[1] + 1:]
+        sec = line[self.cursor[1] + 1 :]
         m = re.search(r"\W|$", sec)
         next_non_word = m.end()
         self.cursor[1] = self.cursor[1] + next_non_word + 1
@@ -107,7 +107,7 @@ class EditString:
     @dispatch.on("ctrl+left")
     def prev_word(self):
         line = self.lines[self.cursor[0]]
-        sec = line[:self.cursor[1]][:: -1]
+        sec = line[: self.cursor[1]][::-1]
         m = re.search(r"\W\w|$", sec)
         prev_non_word = m.end()
         self.cursor[1] = self.cursor[1] - prev_non_word
@@ -141,16 +141,16 @@ class EditString:
     @dispatch.on("ctrl+h")
     def delete_word(self):
         line = self.lines[self.cursor[0]]
-        sec = line[:self.cursor[1]][:: -1]
+        sec = line[: self.cursor[1]][::-1]
         m = re.search(r"(?>.)\b|$", sec)
         print(sec, self.cursor, m)
         prev_non_word = m.end()
         n = self.cursor[1] - prev_non_word
         self.lines[self.cursor[0]] = (
-            self.lines[self.cursor[0]][:n] + self.lines[self.cursor[0]][self.cursor[1] :]
+            self.lines[self.cursor[0]][:n]
+            + self.lines[self.cursor[0]][self.cursor[1] :]
         )
         self.cursor[1] = n
-
 
     @dispatch.on("enter")
     def newline(self):
@@ -274,7 +274,10 @@ EditIntString = partial(ParsedEditString, parser=int)
 EditFloatString = partial(ParsedEditString, parser=float)
 EditComplexString = partial(ParsedEditString, parser=complex)
 EditNumericString = partial(ParsedEditString, parser=parse_numeric)
+
+
 def EditEnumString(enum_cls):
     return ParsedEditString(parser=enum_cls)
+
 
 __all__ = ["EditString"]
