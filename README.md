@@ -27,21 +27,27 @@ python -m twidge edit 'Hello World'
 
 # Form input
 python -m twidge form name,email,username,password
+
+# Template input
+python -m twidge template "Hello, my name is {name} and I live in {town}. I prefer {language:('Python', 'JavaScript')}"
 ```
 
 #### Python
 ```python
-from twidge import widgets
+from twidge.widgets import *
 
 # Echo keypresses
-widgets.Echo().run()
+Echo().run()
 
 # ... as bytes
-widgets.EchoBytes().run()
+EchoBytes().run()
 
 # Edit strings
-content = widgets.Close(widgets.EditString('Hello World!')).run()
+content = Close(EditString('Hello World!')).run()
 
 # Form input
 user_info = Close(Form(['Name', 'EMail', 'Username', 'Password'])).run()
+
+# Template input
+result = Close(EditTemplate("Hello, my name is {name} and I live in {town}. I prefer {language:('Python', 'JavaScript')}")).run()
 ```

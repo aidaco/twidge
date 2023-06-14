@@ -3,11 +3,14 @@ import typing
 from functools import partial
 from math import ceil, floor
 
+from rich.measure import Measurement
 from rich.style import Style
 from rich.styled import Styled
+from rich.table import Table
 from rich.text import Text
 
 from twidge.core import DispatchBuilder, RunBuilder
+from twidge.widgets.wrappers import FocusManager
 
 
 class EditString:
@@ -65,6 +68,10 @@ class EditString:
 
         # Render lines after cursor, if any
         yield from (line[:width] for line in elines)
+
+    def __rich_measure__(self, console, options):
+        width = max(len(line) for line in self.lines) + 1
+        return Measurement(width, width)
 
     @dispatch.on("left")
     def cursor_left(self):
@@ -279,4 +286,38 @@ def EditEnumString(enum_cls):
     return ParsedEditString(parser=enum_cls)
 
 
-__all__ = ["EditString"]
+class EditDict:
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
+
+    def __init__(self, content: dict[str, str]):
+        self.content = content
+        self.editors = {EditString(k): EditString(v) for k, v in content.items()}
+        self.focuser = FocusManager(*(w for kv in self.editors.items() for w in kv))
+
+    @property
+    def result(self):
+        return {k.result: v.result for k, v in self.editors.items()}
+
+    def __rich__(self):
+        t = Table.grid(padding=(0, 1, 0, 0))
+        t.add_column()
+        t.add_column()
+        for k, v in self.editors.items():
+            t.add_row(Styled(k, style="bright_green"), v)
+        return t
+
+    @dispatch.on("tab")
+    def focus_advance(self):
+        self.focuser.forward()
+
+    @dispatch.on("shift+tab")
+    def focus_back(self):
+        self.focuser.back()
+
+    @dispatch.default
+    def passthrough(self, event):
+        self.focuser.focused.dispatch(event)
+
+
+__all__ = ["EditString", "EditDict"]
