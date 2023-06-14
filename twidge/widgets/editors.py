@@ -143,7 +143,6 @@ class EditString:
         line = self.lines[self.cursor[0]]
         sec = line[: self.cursor[1]][::-1]
         m = re.search(r"(?>.)\b|$", sec)
-        print(sec, self.cursor, m)
         prev_non_word = m.end()
         n = self.cursor[1] - prev_non_word
         self.lines[self.cursor[0]] = (
