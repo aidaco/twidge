@@ -29,7 +29,7 @@ python -m twidge edit 'Hello World'
 python -m twidge form name,email,username,password
 ```
 
-#### Python API
+#### Python
 ```python
 from twidge import widgets
 
