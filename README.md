@@ -1,4 +1,3 @@
-
 # Twidge
 
 Simple terminal widgets for simple people.
@@ -14,43 +13,35 @@ This package is mostly intended for my own personal use, but have at it.
 python -m pip install twidge
 ```
 
-#### Echo Keypresses
+#### CLI
 
 ```sh
+# Echo keypresses
 python -m twidge echo
-```
 
-```python
-from twidge.widgets import echo
+# ... as bytes
+python -m twidge echobytes
 
-echo.run()
-```
-
-#### Text Editor
-
-```sh
+# Edit text
 python -m twidge edit 'Hello World'
+
+# Form input
+python -m twidge form name,email,username,password
 ```
 
+#### Python API
 ```python
-from twidge.widgets import editstr
+from twidge import widgets
 
-content = editstr.run('Hello World!')
+# Echo keypresses
+widgets.Echo().run()
+
+# ... as bytes
+widgets.EchoBytes().run()
+
+# Edit strings
+content = widgets.Close(widgets.EditString('Hello World!')).run()
+
+# Form input
+user_info = Close(Form(['Name', 'EMail', 'Username', 'Password'])).run()
 ```
-
-#### Dictionary Editor
-
-```sh
-python -m twidge editdict name,email,username,password
-```
-
-```python
-from twidge.widgets import editdict
-
-favorite_colors = {'Alice': 'red', 'Bob': 'blue'}
-content = editdict.run(favorite_colors)
-```
-
-## Issues
-
-Many - known and unknown. Issues welcome.
