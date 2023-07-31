@@ -41,7 +41,7 @@ class Indexer:
                     Text(str(i + 1), style="cyan"), Text(self.fmt(o), style="on green")
                 )
             else:
-                table.add_row(Text(str(i + 1), style="cyan"), f"{o}")
+                table.add_row(Text(str(i + 1), style="cyan"), f"{self.fmt(o)}")
         return Group(Text(self.query, style="bold yellow"), table)
 
     def filter(self):
