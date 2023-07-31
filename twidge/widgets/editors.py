@@ -179,16 +179,27 @@ class EditString:
     def insert(self, char: str):
         char = "\t" if char == "tab" else char
         char = " " if char == "space" else char
-
-        if len(char) > 1:
-            return
-        line = self.lines[self.cursor[0]]
-        if line == "":
-            line = char
-        else:
-            line = line[: self.cursor[1]] + char + line[self.cursor[1] :]
-        self.cursor[1] += len(char)
-        self.lines[self.cursor[0]] = line
+        match char.split('\r'): # Raw stdin doesn't translate \r to \n
+            case [ch]:
+                line = self.lines[self.cursor[0]]
+                line = line[: self.cursor[1]] + ch + line[self.cursor[1] :]
+                self.cursor[1] += len(ch)
+                self.lines[self.cursor[0]] = line
+            case [first, last]:
+                line = self.lines[self.cursor[0]]
+                line1 = line[:self.cursor[1]] + first
+                line2 = last + line[self.cursor[1]:]
+                self.lines[self.cursor[0]] = line1
+                self.lines.insert(self.cursor[0] + 1, line2)
+                self.cursor[0] += 1
+                self.cursor[1] = len(last)
+            case [first, *middle, last]:
+                line = self.lines[self.cursor[0]]
+                line1 = line[:self.cursor[1]] + first
+                line2 = last + line[self.cursor[1]:]
+                self.lines[self.cursor[0]:self.cursor[0]+1] = [line1] + middle + [line2]
+                self.cursor[0] += len(middle) + 1
+                self.cursor[1] = len(last)
 
 
 def _fullview(content, center, width):
@@ -280,6 +291,14 @@ EditIntString = partial(ParsedEditString, parser=int)
 EditFloatString = partial(ParsedEditString, parser=float)
 EditComplexString = partial(ParsedEditString, parser=complex)
 EditNumericString = partial(ParsedEditString, parser=parse_numeric)
+<<<<<<< HEAD
+=======
+
+
+def EditEnumString(enum_cls):
+    return ParsedEditString(parser=enum_cls)
+
+>>>>>>> next-prev-word-fix
 
 
 def EditEnumString(enum_cls):

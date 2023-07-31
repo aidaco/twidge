@@ -1,6 +1,10 @@
 import pytest
 
+<<<<<<< HEAD
 from twidge.widgets import (
+=======
+from twidge.widgets.base import (
+>>>>>>> next-prev-word-fix
     Button,
     Echo,
     EchoBytes,
