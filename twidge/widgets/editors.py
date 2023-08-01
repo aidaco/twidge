@@ -57,7 +57,7 @@ class EditString:
                     sstr, cstr, estr = _fullview(cline, self.cursor[1], width)
 
         # Render lines before cursor, if any
-        yield from (line[:width] for line in slines)
+        yield from (Text(line[:width]) for line in slines)
 
         # Render cursor line
         yield (
@@ -67,7 +67,7 @@ class EditString:
         )
 
         # Render lines after cursor, if any
-        yield from (line[:width] for line in elines)
+        yield from (Text(line[:width]) for line in elines)
 
     def __rich_measure__(self, console, options):
         width = max(len(line) for line in self.lines) + 1
