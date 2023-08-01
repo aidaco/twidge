@@ -11,7 +11,7 @@ class Form:
     run = RunBuilder()
     dispatch = DispatchBuilder()
 
-    def __init__(self, labels: list, fmt: Callable):
+    def __init__(self, labels: list, fmt: Callable = str):
         self.labels = labels
         self.fmt = fmt
         self.fm = FocusManager(
