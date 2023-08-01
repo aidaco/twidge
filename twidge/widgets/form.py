@@ -1,3 +1,4 @@
+from typing import Callable
 from rich.table import Table
 from rich.text import Text
 
@@ -10,8 +11,9 @@ class Form:
     run = RunBuilder()
     dispatch = DispatchBuilder()
 
-    def __init__(self, labels: list[str]):
+    def __init__(self, labels: list, fmt: Callable):
         self.labels = labels
+        self.fmt = fmt
         self.fm = FocusManager(
             *(EditString(multiline=False, overflow="wrap") for _ in labels)
         )
@@ -25,7 +27,7 @@ class Form:
         t.add_column()
         t.add_column()
         for l, w in zip(self.labels, self.fm.widgets):
-            t.add_row(Text(l, style="bright_green"), w)
+            t.add_row(Text(self.fmt(l), style="bright_green"), w)
         return t
 
     @dispatch.on("tab")

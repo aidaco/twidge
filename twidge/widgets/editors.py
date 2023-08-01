@@ -291,15 +291,6 @@ EditIntString = partial(ParsedEditString, parser=int)
 EditFloatString = partial(ParsedEditString, parser=float)
 EditComplexString = partial(ParsedEditString, parser=complex)
 EditNumericString = partial(ParsedEditString, parser=parse_numeric)
-<<<<<<< HEAD
-=======
-
-
-def EditEnumString(enum_cls):
-    return ParsedEditString(parser=enum_cls)
-
->>>>>>> next-prev-word-fix
-
 
 def EditEnumString(enum_cls):
     return ParsedEditString(parser=enum_cls)

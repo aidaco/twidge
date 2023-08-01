@@ -111,7 +111,7 @@ class Runner:
 
         self.running = False
 
-    def run(self):
+    def start(self):
         self.running = True
         with chbreak(stdin=self.stdin), Live(
             self.widget,
@@ -130,7 +130,7 @@ class Runner:
     def stop(self):
         self.running = False
 
-    __call__ = run
+    __call__ = start
 
 
 class Dispatcher:
