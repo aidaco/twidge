@@ -158,6 +158,11 @@ class EditString:
         )
         self.cursor[1] = n
 
+    @dispatch.on('ctrl+u')
+    def clear(self):
+        self.cursor[1] = 0
+        self.lines[self.cursor[0]] = ''
+
     @dispatch.on("enter")
     def newline(self):
         if self.multiline:
