@@ -62,9 +62,13 @@ class Framed:
     """Applies a frame to the content."""
 
     def __init__(
-        self, content: ContentType, *, style: str | Style = Style.parse("white")
+        self, content: ContentType,
+        *,
+        title: str = '',
+        style: str | Style = Style.parse("white")
     ):
         self.content = content
+        self.title = title
         self.style = style
 
     dispatch = DispatchBuilder()
@@ -78,7 +82,7 @@ class Framed:
         return self.content.result
 
     def __rich__(self):
-        return Panel.fit(self.content, border_style=self.style)
+        return Panel.fit(self.content, border_style=self.style, title=self.title)
 
 
 class Labelled:

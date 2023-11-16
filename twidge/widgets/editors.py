@@ -22,12 +22,18 @@ class EditString:
         text: str = "",
         multiline: bool = True,
         overflow: typing.Literal["wrap", "scroll"] = "scroll",
+        text_style: str = '',
+        cursor_style: str = "grey30 on grey70",
+        cursor_line_style: str = '',
     ):
         self.lines = list(text.split("\n"))
         self.cursor = [0, 0]
         self.focus = True
         self.multiline = multiline
         self.overflow = overflow
+        self.text_style = text_style
+        self.cursor_style = cursor_style
+        self.cursor_line_style = cursor_line_style
 
     @property
     def result(self) -> str:
@@ -57,17 +63,17 @@ class EditString:
                     sstr, cstr, estr = _fullview(cline, self.cursor[1], width)
 
         # Render lines before cursor, if any
-        yield from (Text(line[:width]) for line in slines)
+        yield from (Text(line[:width], style=self.text_style) for line in slines)
 
         # Render cursor line
         yield (
-            Text(sstr) + Text(cstr, style="grey30 on grey70") + Text(estr)
+            Text(sstr, style=self.cursor_line_style) + Text(cstr, style=self.cursor_style) + Text(estr, style=self.cursor_line_style)
             if self.focus
             else Text(sstr) + Text(cstr) + Text(estr)
         )
 
         # Render lines after cursor, if any
-        yield from (Text(line[:width]) for line in elines)
+        yield from (Text(line[:width], style=self.text_style) for line in elines)
 
     def __rich_measure__(self, console, options):
         width = max(len(line) for line in self.lines) + 1

@@ -11,12 +11,14 @@ class Form:
     run = RunBuilder()
     dispatch = DispatchBuilder()
 
-    def __init__(self, labels: list, fmt: Callable = str):
+    def __init__(self, labels: list, fmt: Callable = str, label_style='bright_green', field_style=''):
         self.labels = labels
         self.fmt = fmt
         self.fm = FocusManager(
-            *(EditString(multiline=False, overflow="wrap") for _ in labels)
+            *(EditString(multiline=False, overflow="wrap", text_style=field_style, cursor_line_style=field_style) for _ in labels)
         )
+        self.label_style = label_style
+        self.field_style = field_style
 
     @property
     def result(self):
@@ -27,7 +29,8 @@ class Form:
         t.add_column()
         t.add_column()
         for l, w in zip(self.labels, self.fm.widgets):
-            t.add_row(Text(self.fmt(l), style="bright_green"), w)
+            t.add_row(Text(self.fmt(l), style=self.label_style), w)
+
         return t
 
     @dispatch.on("tab")
