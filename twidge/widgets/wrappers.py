@@ -84,7 +84,7 @@ class Framed:
         return self.content.result
 
     def __rich__(self):
-        return Panel.fit(self.content, self.style=self.style, border_style=self.border_style, title=self.title)
+        return Panel.fit(self.content, style=self.style, border_style=self.border_style, title=self.title)
 
 
 class Labelled:
