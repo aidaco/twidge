@@ -65,11 +65,13 @@ class Framed:
         self, content: ContentType,
         *,
         title: str = '',
-        style: str | Style = Style.parse("white")
+        style: str | Style = ''
+        border_style: str | Style = ''
     ):
         self.content = content
         self.title = title
         self.style = style
+        self.border_style = border_style
 
     dispatch = DispatchBuilder()
 
@@ -82,7 +84,7 @@ class Framed:
         return self.content.result
 
     def __rich__(self):
-        return Panel.fit(self.content, border_style=self.style, title=self.title)
+        return Panel.fit(self.content, self.style=self.style, border_style=self.border_style, title=self.title)
 
 
 class Labelled:
