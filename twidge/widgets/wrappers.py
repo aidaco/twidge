@@ -65,7 +65,7 @@ class Framed:
         self, content: ContentType,
         *,
         title: str = '',
-        style: str | Style = ''
+        style: str | Style = '',
         border_style: str | Style = ''
     ):
         self.content = content
