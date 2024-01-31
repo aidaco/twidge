@@ -117,7 +117,8 @@ class Runner:
             self.widget,
             console=self.console,
             transient=True,
-            auto_refresh=False,
+            auto_refresh=True,
+            refresh_per_second=30,
         ) as live:
             refresh = live.refresh
             read = self.reader(open(self.stdin, "rb", buffering=0, closefd=False)).read
@@ -154,6 +155,16 @@ class Dispatcher:
             case _:
                 raise TypeError("Handler should take one or zero arguments.")
 
+    def replace(
+        self,
+        table: dict[Event, HandlerType] = ...,
+        default: HandlerType | None = ...,
+    ):
+        if table is not ...:
+            self.table = table
+        if default is not ...:
+            self.default = default
+
     def update(
         self,
         table: dict[Event, HandlerType] | None = None,
@@ -162,7 +173,7 @@ class Dispatcher:
         if table:
             self.table.update(table)
         if default:
-            self._default = default
+            self.default = default
 
     __call__ = dispatch
 
