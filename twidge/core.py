@@ -117,6 +117,7 @@ class Runner:
             self.widget,
             console=self.console,
             transient=True,
+            screen=True,
             auto_refresh=True,
             refresh_per_second=30,
         ) as live:

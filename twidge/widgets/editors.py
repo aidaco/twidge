@@ -34,6 +34,8 @@ class EditString:
         self.text_style = text_style
         self.cursor_style = cursor_style
         self.cursor_line_style = cursor_line_style
+        self.cached_renderables = []
+        self.needs_rerender = True
 
     @property
     def result(self) -> str:
@@ -43,6 +45,10 @@ class EditString:
         return self
 
     def __rich_console__(self, console, options):
+        if not self.needs_rerender:
+            return self.cached_renderables
+
+        self.cached_renderables.clear()
         width, height = options.max_width, options.max_height - 2
         slines, cline, elines = _scrollview(self.lines, self.cursor[0], height)
 
@@ -63,17 +69,19 @@ class EditString:
                     sstr, cstr, estr = _fullview(cline, self.cursor[1], width)
 
         # Render lines before cursor, if any
-        yield from (Text(line[:width], style=self.text_style) for line in slines)
+        self.cached_renderables.extend(Text(line[:width], style=self.text_style) for line in slines)
 
         # Render cursor line
-        yield (
+        self.cached_renderables.append(
             Text(sstr, style=self.cursor_line_style) + Text(cstr, style=self.cursor_style) + Text(estr, style=self.cursor_line_style)
             if self.focus
             else Text(sstr) + Text(cstr) + Text(estr)
         )
 
         # Render lines after cursor, if any
-        yield from (Text(line[:width], style=self.text_style) for line in elines)
+        self.cached_renderables.extend(Text(line[:width], style=self.text_style) for line in elines)
+        self.needs_rerender = False
+        return self.cached_renderables
 
     def __rich_measure__(self, console, options):
         width = max(len(line) for line in self.lines) + 1
@@ -83,31 +91,37 @@ class EditString:
     def cursor_left(self):
         if self.cursor[1] != 0:
             self.cursor[1] -= 1
+            self.needs_rerender = True
         else:
             if self.cursor[0] != 0:
                 self.cursor[0] -= 1
                 self.cursor[1] = len(self.lines[self.cursor[0]])
+                self.needs_rerender = True
 
     @dispatch.on("right")
     def cursor_right(self):
         if self.cursor[1] < len(self.lines[self.cursor[0]]):
             self.cursor[1] += 1
+            self.needs_rerender = True
         else:
             if self.cursor[0] < len(self.lines) - 1:
                 self.cursor[0] += 1
                 self.cursor[1] = 0
+                self.needs_rerender = True
 
     @dispatch.on("up")
     def cursor_up(self):
         if self.multiline and self.cursor[0] > 0:
             self.cursor[0] -= 1
             self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
+            self.needs_rerender = True
 
     @dispatch.on("down")
     def cursor_down(self):
         if self.multiline and self.cursor[0] < len(self.lines) - 1:
             self.cursor[0] += 1
             self.cursor[1] = min(self.cursor[1], len(self.lines[self.cursor[0]]))
+            self.needs_rerender = True
 
     @dispatch.on("ctrl+right")
     def next_word(self):
@@ -116,6 +130,7 @@ class EditString:
         m = re.search(r"\W|$", sec)
         next_non_word = m.end()
         self.cursor[1] = self.cursor[1] + next_non_word + 1
+        self.needs_rerender = True
 
     @dispatch.on("ctrl+left")
     def prev_word(self):
@@ -124,14 +139,17 @@ class EditString:
         m = re.search(r"\W\w|$", sec)
         prev_non_word = m.end()
         self.cursor[1] = self.cursor[1] - prev_non_word
+        self.needs_rerender = True
 
     @dispatch.on("home")
     def cursor_home(self):
         self.cursor[1] = 0
+        self.needs_rerender = True
 
     @dispatch.on("end")
     def cursor_end(self):
         self.cursor[1] = len(self.lines[self.cursor[0]])
+        self.needs_rerender = True
 
     @dispatch.on("backspace")
     def backspace(self):
@@ -141,6 +159,7 @@ class EditString:
                 + self.lines[self.cursor[0]][self.cursor[1] :]
             )
             self.cursor[1] -= 1
+            self.needs_rerender = True
         else:
             if self.multiline and self.cursor[0] != 0:
                 length = len(self.lines[self.cursor[0] - 1])
@@ -150,6 +169,7 @@ class EditString:
                 self.cursor[1] = length
                 del self.lines[self.cursor[0]]
                 self.cursor[0] -= 1
+                self.needs_rerender = True
 
     @dispatch.on("ctrl+h")
     def delete_word(self):
@@ -163,11 +183,13 @@ class EditString:
             + self.lines[self.cursor[0]][self.cursor[1] :]
         )
         self.cursor[1] = n
+        self.needs_rerender = True
 
     @dispatch.on('ctrl+u')
     def clear(self):
         self.cursor[1] = 0
         self.lines[self.cursor[0]] = ''
+        self.needs_rerender = True
 
     @dispatch.on("enter")
     def newline(self):
@@ -177,14 +199,17 @@ class EditString:
             self.lines.insert(self.cursor[0] + 1, rest)
             self.cursor[0] += 1
             self.cursor[1] = 0
+            self.needs_rerender = True
 
     @dispatch.on("focus")
     def on_focus(self):
         self.focus = True
+        self.needs_rerender = True
 
     @dispatch.on("blur")
     def on_blur(self):
         self.focus = False
+        self.needs_rerender = True
 
     @dispatch.default
     def insert(self, char: str):
@@ -196,6 +221,7 @@ class EditString:
                 line = line[: self.cursor[1]] + ch + line[self.cursor[1] :]
                 self.cursor[1] += len(ch)
                 self.lines[self.cursor[0]] = line
+                self.needs_rerender = True
             case [first, last]:
                 line = self.lines[self.cursor[0]]
                 line1 = line[:self.cursor[1]] + first
@@ -204,6 +230,7 @@ class EditString:
                 self.lines.insert(self.cursor[0] + 1, line2)
                 self.cursor[0] += 1
                 self.cursor[1] = len(last)
+                self.needs_rerender = True
             case [first, *middle, last]:
                 line = self.lines[self.cursor[0]]
                 line1 = line[:self.cursor[1]] + first
@@ -211,6 +238,7 @@ class EditString:
                 self.lines[self.cursor[0]:self.cursor[0]+1] = [line1] + middle + [line2]
                 self.cursor[0] += len(middle) + 1
                 self.cursor[1] = len(last)
+                self.needs_rerender = True
 
 
 def _fullview(content, center, width):
@@ -222,24 +250,35 @@ def _scrollview(content, center, width):
     """Split a sequence content about the pivot index into
     start, center, end with fixed total width. Pivot must be < len(content).
     """
+    # width = width - 1
+    # # len of portion
+    # lstart = len(content[:center])
+    # lend = len(content[center + 1 :])
+
+    # # offset from center, floor/ceil accounts for odd widths
+    # ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
+    # oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
+
+    # # bounding index in seq
+    # istart = max(0, center - ostart)
+    # iend = min(center + 1 + oend, len(content))
+
+    # # partition content
+    # start = content[istart:center]
+    # end = content[center + 1 : iend]
+    # center = content[center]
+    # return start, center, end
+
     width = width - 1
-    # len of portion
-    lstart = len(content[:center])
-    lend = len(content[center + 1 :])
-
-    # offset from center, floor/ceil accounts for odd widths
-    ostart = ceil(width / 2) + max(0, floor(width / 2) - lend)
-    oend = floor(width / 2) + max(0, ceil(width / 2) - lstart)
-
-    # bounding index in seq
+    ostart = ceil(width / 2)
+    oend = ceil(width / 2)
     istart = max(0, center - ostart)
-    iend = min(center + 1 + oend, len(content))
-
-    # partition content
-    start = content[istart:center]
-    end = content[center + 1 : iend]
-    center = content[center]
-    return start, center, end
+    iend = min(center + oend - 1, len(content))
+    dstart = ostart - len(content[istart:center])
+    dend = oend - len(content[center:iend])
+    fstart = max(0, istart - dend)
+    fend = min(len(content), iend + dstart)
+    return content[fstart:center], content[center], content[center+1:fend]
 
 
 class ValidatedEditString:
@@ -302,6 +341,7 @@ EditIntString = partial(ParsedEditString, parser=int)
 EditFloatString = partial(ParsedEditString, parser=float)
 EditComplexString = partial(ParsedEditString, parser=complex)
 EditNumericString = partial(ParsedEditString, parser=parse_numeric)
+
 
 def EditEnumString(enum_cls):
     return ParsedEditString(parser=enum_cls)
