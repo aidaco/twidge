@@ -113,14 +113,14 @@ class Runner:
 
     def start(self):
         self.running = True
-        with chbreak(stdin=self.stdin), Live(
+        with Live(
             self.widget,
             console=self.console,
             transient=True,
             screen=True,
             auto_refresh=True,
             refresh_per_second=30,
-        ) as live:
+        ) as live, chbreak(stdin=self.stdin):
             refresh = live.refresh
             read = self.reader(open(self.stdin, "rb", buffering=0, closefd=False)).read
             dispatch = self.widget.dispatch
