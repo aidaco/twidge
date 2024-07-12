@@ -22,9 +22,9 @@ class EditString:
         text: str = "",
         multiline: bool = True,
         overflow: typing.Literal["wrap", "scroll"] = "scroll",
-        text_style: str = '',
+        text_style: str = "",
         cursor_style: str = "grey30 on grey70",
-        cursor_line_style: str = '',
+        cursor_line_style: str = "",
     ):
         self.lines = list(text.split("\n"))
         self.cursor = [0, 0]
@@ -69,17 +69,23 @@ class EditString:
                     sstr, cstr, estr = _fullview(cline, self.cursor[1], width)
 
         # Render lines before cursor, if any
-        self.cached_renderables.extend(Text(line[:width], style=self.text_style) for line in slines)
+        self.cached_renderables.extend(
+            Text(line[:width], style=self.text_style) for line in slines
+        )
 
         # Render cursor line
         self.cached_renderables.append(
-            Text(sstr, style=self.cursor_line_style) + Text(cstr, style=self.cursor_style) + Text(estr, style=self.cursor_line_style)
+            Text(sstr, style=self.cursor_line_style)
+            + Text(cstr, style=self.cursor_style)
+            + Text(estr, style=self.cursor_line_style)
             if self.focus
             else Text(sstr) + Text(cstr) + Text(estr)
         )
 
         # Render lines after cursor, if any
-        self.cached_renderables.extend(Text(line[:width], style=self.text_style) for line in elines)
+        self.cached_renderables.extend(
+            Text(line[:width], style=self.text_style) for line in elines
+        )
         self.needs_rerender = False
         return self.cached_renderables
 
@@ -185,10 +191,10 @@ class EditString:
         self.cursor[1] = n
         self.needs_rerender = True
 
-    @dispatch.on('ctrl+u')
+    @dispatch.on("ctrl+u")
     def clear(self):
         self.cursor[1] = 0
-        self.lines[self.cursor[0]] = ''
+        self.lines[self.cursor[0]] = ""
         self.needs_rerender = True
 
     @dispatch.on("enter")
@@ -215,7 +221,7 @@ class EditString:
     def insert(self, char: str):
         char = "\t" if char == "tab" else char
         char = " " if char == "space" else char
-        match char.split('\r'): # Raw stdin doesn't translate \r to \n
+        match char.split("\r"):  # Raw stdin doesn't translate \r to \n
             case [ch]:
                 line = self.lines[self.cursor[0]]
                 line = line[: self.cursor[1]] + ch + line[self.cursor[1] :]
@@ -224,8 +230,8 @@ class EditString:
                 self.needs_rerender = True
             case [first, last]:
                 line = self.lines[self.cursor[0]]
-                line1 = line[:self.cursor[1]] + first
-                line2 = last + line[self.cursor[1]:]
+                line1 = line[: self.cursor[1]] + first
+                line2 = last + line[self.cursor[1] :]
                 self.lines[self.cursor[0]] = line1
                 self.lines.insert(self.cursor[0] + 1, line2)
                 self.cursor[0] += 1
@@ -233,9 +239,11 @@ class EditString:
                 self.needs_rerender = True
             case [first, *middle, last]:
                 line = self.lines[self.cursor[0]]
-                line1 = line[:self.cursor[1]] + first
-                line2 = last + line[self.cursor[1]:]
-                self.lines[self.cursor[0]:self.cursor[0]+1] = [line1] + middle + [line2]
+                line1 = line[: self.cursor[1]] + first
+                line2 = last + line[self.cursor[1] :]
+                self.lines[self.cursor[0] : self.cursor[0] + 1] = (
+                    [line1] + middle + [line2]
+                )
                 self.cursor[0] += len(middle) + 1
                 self.cursor[1] = len(last)
                 self.needs_rerender = True
@@ -278,7 +286,7 @@ def _scrollview(content, center, width):
     dend = oend - len(content[center:iend])
     fstart = max(0, istart - dend)
     fend = min(len(content), iend + dstart)
-    return content[fstart:center], content[center], content[center+1:fend]
+    return content[fstart:center], content[center], content[center + 1 : fend]
 
 
 class ValidatedEditString:
@@ -381,4 +389,68 @@ class EditDict:
         self.focuser.focused.dispatch(event)
 
 
-__all__ = ["EditString", "EditDict"]
+type NestedStrDict = "dict[str, str | NestedStrDict]"
+type Field = tuple[str, ...]
+type Value = str
+type FieldValues = typing.Iterable[tuple[Field, Value]]
+
+
+def _unnest(data: NestedStrDict) -> FieldValues:
+    for k, v in data.items():
+        match v:
+            case str():
+                yield (k,), v
+            case dict():
+                yield from (((k, *field), value) for field, value in _unnest(v))
+
+
+def _nest(data: FieldValues) -> NestedStrDict:
+    def insert(root: NestedStrDict, k: Field, v: Value):
+        cur: typing.Any = root
+        for pk in k[:-1]:
+            if pk not in cur:
+                cur[pk] = {}
+            cur = cur[pk]
+        cur[k[-1]] = v
+
+    root = {}
+    for field, value in data:
+        insert(root, field, value)
+    return root
+
+
+class EditNestedDict:
+    run = RunBuilder()
+    dispatch = DispatchBuilder()
+
+    def __init__(self, content: NestedStrDict):
+        self.content = content
+        self.editors = {f: EditString(v) for f, v in _unnest(content)}
+        self.focuser = FocusManager(*self.editors.values())
+
+    @property
+    def result(self) -> NestedStrDict:
+        return _nest((f, e.result) for f, e in self.editors.items())
+
+    def __rich__(self):
+        t = Table.grid(padding=(0, 1, 0, 0))
+        t.add_column()
+        t.add_column()
+        for k, v in self.editors.items():
+            t.add_row(Styled(" ".join(k).title(), style="bright_green"), v)
+        return t
+
+    @dispatch.on("tab")
+    def focus_advance(self):
+        self.focuser.forward()
+
+    @dispatch.on("shift+tab")
+    def focus_back(self):
+        self.focuser.back()
+
+    @dispatch.default
+    def passthrough(self, event):
+        self.focuser.focused.dispatch(event)
+
+
+__all__ = ["EditString", "EditDict", "EditNestedDict"]
